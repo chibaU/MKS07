@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 combined_files.txt
+
+docs
+docs/*

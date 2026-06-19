@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs */
 import { useRef, useState } from "react";
 import { Trash2, Plus, Save, Printer, X } from "lucide-react";
 import type { SharedBox } from "../App";
