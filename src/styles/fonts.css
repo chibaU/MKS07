@@ -1,8 +1,19 @@
 @font-face {
   font-family: 'Cairo';
   font-style: normal;
-  font-weight: 300 800; /* يغطي الأوزان: 300, 400, 500, 600, 700, 800 */
+  font-weight: 300 800;
   font-display: swap;
+  /* نستخدم نفس المسار النسبي الصحيح الموجود لديك */
   src: url('./fonts/Cairo-VariableFont_slnt,wght.ttf') format('truetype-variable'),
        url('./fonts/Cairo-VariableFont_slnt,wght.ttf') format('truetype');
+}
+
+/* إجبار المتصفح والمحرك على تصفير قيمة الميول (slnt 0) للخط المتغير */
+* {
+  font-family: 'Cairo', sans-serif !important;
+  font-variation-settings: "slnt" 0, "wght" var(--font-weight, 400);
+}
+
+body, html, #root {
+  font-style: normal !important;
 }
