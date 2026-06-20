@@ -1,19 +1,6 @@
-import { useState } from "react";
-import { Pencil, Trash2, Plus, Search, X, Package } from "lucide-react";
-
-interface Product {
-  id: number;
-  name: string;
-}
-
-const initialProducts: Product[] = [
-  { id: 1, name: "تمر مجدول" },
-  { id: 2, name: "زيت زيتون بكر ممتاز" },
-  { id: 3, name: "عسل طبيعي" },
-  { id: 4, name: "تمر سكري" },
-  { id: 5, name: "زعفران إيراني" },
-  { id: 6, name: "قهوة عربية" },
-];
+import { useEffect, useState } from "react";
+import { Pencil, Trash2, Plus, Search, X } from "lucide-react";
+import { productService, type Product } from "../services/db";
 
 const s = {
   page: { padding: "32px", direction: "rtl" as const },
@@ -32,241 +19,167 @@ const s = {
   },
   searchWrap: { position: "relative" as const, flex: 1 },
   searchIcon: { position: "absolute" as const, right: "12px", top: "50%", transform: "translateY(-50%)", color: "#94A3B8" },
-  searchInput: {
-    width: "100%",
-    padding: "10px 40px 10px 14px",
-    borderRadius: "8px",
-    border: "1px solid #E2E8F0",
-    backgroundColor: "#F8FAFC",
-    color: "#1E293B",
-    fontSize: "14px",
-    outline: "none",
-    fontFamily: "'Cairo', sans-serif",
-    boxSizing: "border-box" as const,
-  },
-  addBtn: {
-    backgroundColor: "#2563EB",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    padding: "10px 20px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-    fontFamily: "'Cairo', sans-serif",
-    whiteSpace: "nowrap" as const,
-  },
-  tableCard: {
-    backgroundColor: "white",
-    borderRadius: "12px",
-    border: "1px solid #E2E8F0",
-    overflow: "hidden",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-  },
-  table: { width: "100%", borderCollapse: "collapse" as const },
-  th: {
-    backgroundColor: "#F8FAFC",
-    color: "#64748B",
-    padding: "12px 16px",
-    textAlign: "right" as const,
-    fontSize: "13px",
-    fontWeight: 600,
-    borderBottom: "1px solid #E2E8F0",
-  },
-  td: {
-    padding: "14px 16px",
-    borderBottom: "1px solid #F1F5F9",
-    color: "#1E293B",
-    fontSize: "14px",
-  },
-  actionBtn: {
-    border: "none",
-    borderRadius: "6px",
-    padding: "6px 12px",
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "4px",
-    fontSize: "12px",
-    fontFamily: "'Cairo', sans-serif",
-    fontWeight: 500,
-    marginLeft: "6px",
-  },
-  overlay: {
-    position: "fixed" as const,
-    inset: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-    direction: "rtl" as const,
-  },
-  modal: {
-    backgroundColor: "white",
-    borderRadius: "14px",
-    padding: "32px",
-    width: "400px",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-  },
+  searchInput: { width: "100%", padding: "10px 38px 10px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "14px", fontFamily: "'Cairo', sans-serif", boxSizing: "border-box" as const, outline: "none" },
+  addBtn: { backgroundColor: "#2563EB", color: "white", border: "none", borderRadius: "8px", padding: "10px 16px", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontFamily: "'Cairo', sans-serif" },
+  tableCard: { backgroundColor: "white", borderRadius: "12px", border: "1px solid #E2E8F0", boxShadow: "0 1px 3px rgba(0,0,0,0.02)", overflow: "hidden" },
+  table: { width: "100%", borderCollapse: "collapse" as const, textAlign: "right" as const },
+  th: { backgroundColor: "#F8FAFC", color: "#64748B", fontWeight: 650, fontSize: "13px", padding: "14px 20px", borderBottom: "1px solid #E2E8F0" },
+  td: { padding: "14px 20px", borderBottom: "1px solid #E2E8F0", color: "#334155", fontSize: "14px" },
+  actionBtn: { border: "none", background: "none", cursor: "pointer", padding: "4px", borderRadius: "4px", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+  overlay: { position: "fixed" as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" },
+  modal: { backgroundColor: "white", borderRadius: "16px", width: "400px", padding: "28px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)", border: "1px solid #E2E8F0" },
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
   modalTitle: { color: "#1E293B", fontSize: "18px", fontWeight: 700 },
-  closeBtn: { border: "none", background: "none", cursor: "pointer", color: "#94A3B8", padding: "4px" },
-  fieldGroup: { marginBottom: "16px", display: "flex", flexDirection: "column" as const, gap: "6px" },
-  label: { color: "#374151", fontSize: "13px", fontWeight: 600 },
-  input: {
-    padding: "10px 14px",
-    borderRadius: "8px",
-    border: "1px solid #E2E8F0",
-    backgroundColor: "#F8FAFC",
-    color: "#1E293B",
-    fontSize: "14px",
-    outline: "none",
-    fontFamily: "'Cairo', sans-serif",
-    width: "100%",
-    boxSizing: "border-box" as const,
-  },
+  closeBtn: { border: "none", background: "none", color: "#94A3B8", cursor: "pointer", display: "flex", alignItems: "center" },
+  fieldGroup: { marginBottom: "16px" },
+  label: { display: "block", color: "#475569", fontSize: "13px", fontWeight: 600, marginBottom: "6px" },
+  input: { width: "100%", padding: "10px 12px", border: "1px solid #CBD5E1", borderRadius: "8px", fontSize: "14px", fontFamily: "'Cairo', sans-serif", boxSizing: "border-box" as const, outline: "none" },
   modalFooter: { display: "flex", gap: "12px", marginTop: "24px", justifyContent: "flex-end" },
-  saveBtn: {
-    backgroundColor: "#2563EB",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    padding: "10px 24px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "'Cairo', sans-serif",
-  },
-  cancelBtn: {
-    backgroundColor: "white",
-    color: "#64748B",
-    border: "1px solid #E2E8F0",
-    borderRadius: "8px",
-    padding: "10px 24px",
-    fontSize: "14px",
-    fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "'Cairo', sans-serif",
-  },
+  cancelBtn: { backgroundColor: "white", color: "#475569", border: "1px solid #CBD5E1", borderRadius: "8px", padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo', sans-serif" },
+  saveBtn: { backgroundColor: "#2563EB", color: "white", border: "none", borderRadius: "8px", padding: "10px 24px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo', sans-serif" },
 };
 
-const productColors = ["#EFF6FF", "#F0FDF4", "#FFF7ED", "#FDF4FF", "#F0F9FF", "#FFFBEB"];
-const productTextColors = ["#2563EB", "#16A34A", "#EA580C", "#9333EA", "#0284C7", "#D97706"];
-
 export function ProductsPage() {
-  const [products, setProducts] = useState(initialProducts);
+  const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<Product | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
   const [formName, setFormName] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const filtered = products.filter((p) => p.name.includes(search));
+  // 1. جلب المنتجات من قاعدة البيانات
+  const loadProducts = async () => {
+    try {
+      setLoading(true);
+      const data = await productService.getAll();
+      setProducts(data);
+    } catch (error) {
+      console.error("خطأ في جلب المنتجات:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const openAdd = () => {
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  // 2. تصفية البحث للجدول
+  const filtered = products.filter((p) =>
+    p.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // 3. فتح نافذة الإضافة
+  const handleAddNew = () => {
     setEditing(null);
     setFormName("");
     setShowModal(true);
   };
 
-  const openEdit = (p: Product) => {
-    setEditing(p);
+  // 4. فتح نافذة التعديل
+  const handleEditClick = (p: Product) => {
+    setEditing(p.id);
     setFormName(p.name);
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (!formName) return;
-    if (editing) {
-      setProducts((prev) => prev.map((p) => (p.id === editing.id ? { ...p, name: formName } : p)));
-    } else {
-      setProducts((prev) => [...prev, { id: Date.now(), name: formName }]);
+  // 5. حفظ البيانات (إضافة أو تعديل) في SQLite
+  const handleSave = async () => {
+    if (!formName.trim()) return;
+
+    try {
+      if (editing === null) {
+        await productService.create(formName.trim());
+      } else {
+        await productService.update(editing, formName.trim());
+      }
+      setShowModal(false);
+      await loadProducts(); // تحديث القائمة فوراً
+    } catch (error) {
+      console.error("خطأ أثناء حفظ المنتج:", error);
     }
-    setShowModal(false);
+  };
+
+  // 6. حذف المنتج
+  const handleDelete = async (id: number) => {
+    if (confirm("هل أنت متأكد من حذف هذا المنتج؟")) {
+      try {
+        await productService.delete(id);
+        await loadProducts(); // تحديث القائمة فوراً
+      } catch (error) {
+        console.error("خطأ أثناء حذف المنتج:", error);
+      }
+    }
   };
 
   return (
     <div style={s.page}>
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={s.h1}>إدارة المنتجات</h1>
-        <p style={s.subtitle}>عرض وإدارة جميع المنتجات المتاحة</p>
+      <div style={{ marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h1 style={s.h1}>📦 إدارة المنتجات</h1>
+          <div style={s.subtitle}>إدارة أصناف السلع والتمور المتوفرة في النظام</div>
+        </div>
+        <button style={s.addBtn} onClick={handleAddNew}>
+          <Plus size={16} />
+          إضافة منتج جديد
+        </button>
       </div>
 
       <div style={s.topBar}>
         <div style={s.searchWrap}>
-          <Search size={16} style={s.searchIcon} />
+          <Search size={18} style={s.searchIcon} />
           <input
             style={s.searchInput}
-            placeholder="بحث عن منتج..."
+            placeholder="بحث باسم المنتج..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <button style={s.addBtn} onClick={openAdd}>
-          <Plus size={16} />
-          إضافة منتج
-        </button>
       </div>
 
       <div style={s.tableCard}>
         <table style={s.table}>
           <thead>
             <tr>
-              {["#", "اسم المنتج", "الإجراءات"].map((h) => (
-                <th key={h} style={s.th}>{h}</th>
-              ))}
+              <th style={{ ...s.th, width: "80px" }}>المعرف</th>
+              <th style={s.th}>اسم المنتج</th>
+              <th style={{ ...s.th, width: "120px", textAlign: "center" }}>الإجراءات</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p, i) => {
-              const bg = productColors[i % productColors.length];
-              const tc = productTextColors[i % productTextColors.length];
+            {loading ? (
+              <tr>
+                <td colSpan={3} style={{ ...s.td, textAlign: "center", color: "#64748B" }}>
+                  جاري جلب البيانات من قاعدة البيانات...
+                </td>
+              </tr>
+            ) : filtered.map((p) => {
               return (
-                <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}>
-                  <td style={{ ...s.td, color: "#94A3B8", width: "50px" }}>{i + 1}</td>
-                  <td style={{ ...s.td, fontWeight: 600 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <div
-                        style={{
-                          width: "34px",
-                          height: "34px",
-                          borderRadius: "8px",
-                          backgroundColor: bg,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
+                <tr key={p.id}>
+                  <td style={{ ...s.td, color: "#64748B", fontFamily: "monospace" }}>#{p.id}</td>
+                  <td style={{ ...s.td, fontWeight: 600, color: "#1E293B" }}>{p.name}</td>
+                  <td style={{ ...s.td, textAlign: "center" }}>
+                    <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+                      <button
+                        style={{ ...s.actionBtn, color: "#2563EB" }}
+                        onClick={() => handleEditClick(p)}
                       >
-                        <Package size={16} color={tc} />
-                      </div>
-                      {p.name}
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        style={{ ...s.actionBtn, color: "#EF4444" }}
+                        onClick={() => handleDelete(p.id)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                  </td>
-                  <td style={s.td}>
-                    <button
-                      style={{ ...s.actionBtn, backgroundColor: "#EFF6FF", color: "#2563EB" }}
-                      onClick={() => openEdit(p)}
-                    >
-                      <Pencil size={13} />
-                      تعديل
-                    </button>
-                    <button
-                      style={{ ...s.actionBtn, backgroundColor: "#FEF2F2", color: "#EF4444" }}
-                      onClick={() => setProducts((prev) => prev.filter((x) => x.id !== p.id))}
-                    >
-                      <Trash2 size={13} />
-                      حذف
-                    </button>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div style={{ padding: "40px", textAlign: "center", color: "#94A3B8", fontSize: "14px" }}>
             لا توجد نتائج مطابقة
           </div>
@@ -278,7 +191,7 @@ export function ProductsPage() {
           <div style={s.modal} onClick={(e) => e.stopPropagation()}>
             <div style={s.modalHeader}>
               <span style={s.modalTitle}>
-                {editing ? "تعديل المنتج" : "إضافة منتج جديد"}
+                {editing !== null ? "تعديل المنتج" : "إضافة منتج جديد"}
               </span>
               <button style={s.closeBtn} onClick={() => setShowModal(false)}>
                 <X size={20} />
@@ -288,7 +201,7 @@ export function ProductsPage() {
               <label style={s.label}>اسم المنتج</label>
               <input
                 style={s.input}
-                placeholder="أدخل اسم المنتج"
+                placeholder="أدخل اسم المنتج (مثال: دقلة نور)"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSave()}
