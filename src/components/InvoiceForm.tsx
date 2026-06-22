@@ -1,8 +1,9 @@
+import { useState, useRef, useEffect } from "react";
 import { Trash2, Plus, Save, Printer } from "lucide-react";
-import type { Draft } from "./invoice";
+import type { Draft, DraftRow } from "./invoice";
+import { type Merchant, type Product } from "../services/db";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-
 
 const c = {
   input: {
@@ -17,7 +18,13 @@ const c = {
     width: "100%",
     boxSizing: "border-box" as const,
   },
-  label: { color: "#374151", fontSize: "13px", fontWeight: 600, display: "block", marginBottom: "6px" },
+  label: {
+    color: "#374151",
+    fontSize: "13px",
+    fontWeight: 600,
+    display: "block",
+    marginBottom: "6px",
+  },
   card: {
     backgroundColor: "white",
     borderRadius: "12px",
@@ -43,17 +50,145 @@ const c = {
   },
 };
 
+// ─── Autocomplete Component ───────────────────────────────────────────────────
+
+interface AutocompleteProps {
+  value: string;
+  onChange: (val: string) => void;
+  onSelect: (val: string, id?: number) => void;
+  suggestions: { id: number; label: string }[];
+  placeholder?: string;
+  style?: React.CSSProperties;
+}
+
+function Autocomplete({
+  value,
+  onChange,
+  onSelect,
+  suggestions,
+  placeholder,
+  style,
+}: AutocompleteProps) {
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(-1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const filtered = suggestions.filter((s) =>
+    s.label.toLowerCase().includes(value.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || filtered.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlighted((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter" && highlighted >= 0) {
+      e.preventDefault();
+      const item = filtered[highlighted];
+      onSelect(item.label, item.id);
+      setOpen(false);
+      setHighlighted(-1);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <input
+        style={{ ...c.input, ...style }}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setHighlighted(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            right: 0,
+            left: 0,
+            zIndex: 500,
+            backgroundColor: "white",
+            border: "1px solid #E2E8F0",
+            borderRadius: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+            maxHeight: "220px",
+            overflowY: "auto",
+          }}
+        >
+          {filtered.map((item, idx) => (
+            <div
+              key={item.id}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelect(item.label, item.id);
+                setOpen(false);
+                setHighlighted(-1);
+              }}
+              onMouseEnter={() => setHighlighted(idx)}
+              style={{
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontSize: "14px",
+                color: "#1E293B",
+                fontFamily: "'Cairo', sans-serif",
+                backgroundColor: idx === highlighted ? "#EFF6FF" : "white",
+                borderBottom:
+                  idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
+                transition: "background 0.1s",
+              }}
+            >
+              {item.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
   onSave: (andPrint: boolean) => void;
+  merchants?: Merchant[];
+  products?: Product[];
+  isSaving?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
+export function InvoiceForm({
+  draft,
+  onChange,
+  onSave,
+  merchants,
+  products,
+  isSaving = false,
+}: InvoiceFormProps) {
   // ── Box inputs ──────────────────────────────────────────────────────────────
 
   const updateBox = (boxId: number, val: string) =>
@@ -68,28 +203,54 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
     0
   );
 
+  // ── Merchant / Product suggestion lists ─────────────────────────────────────
+
+  const merchantSuggestions = merchants?.map((m) => ({
+    id: m.id,
+    label: m.name,
+  })) || [];
+
+  const productSuggestions = products?.map((p) => ({
+    id: p.id,
+    label: p.name,
+  })) || [];
+
   // ── Row insert ──────────────────────────────────────────────────────────────
 
   const handleInsert = () => {
     if (!draft.productInput || !draft.weightInput) return;
-    const row = {
+
+    const row: DraftRow = {
       id: Date.now(),
       product: draft.productInput,
+      productId: draft.productId ?? null,
       weight: parseFloat(draft.weightInput) || 0,
       price: parseFloat(draft.priceInput) || 0,
+      boxesSnapshot: draft.boxes
+        .filter((b) => b.grossInput > 0)
+        .map((b) => ({
+          id: b.id,
+          boxCount: b.grossInput,
+        })),
     };
+
     onChange({
       rows: [...draft.rows, row],
       productInput: "",
+      productId: undefined,
       weightInput: "",
       priceInput: "",
+      boxes: draft.boxes.map((b) => ({ ...b, grossInput: 0 })),
     });
   };
 
   const deleteRow = (rowId: number) =>
     onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
 
-  const grandTotal = draft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
+  const grandTotal = draft.rows.reduce(
+    (sum, r) => sum + r.weight * r.price,
+    0
+  );
 
   const canInsert = Boolean(draft.productInput && draft.weightInput);
 
@@ -97,28 +258,84 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
 
   return (
     <div style={{ padding: "28px 32px" }}>
-
       {/* ── INVOICE FORM CARD ── */}
       <div style={c.card}>
-        <div style={{ color: "#1E293B", fontSize: "16px", fontWeight: 600, marginBottom: "18px" }}>
+        <div
+          style={{
+            color: "#1E293B",
+            fontSize: "16px",
+            fontWeight: 600,
+            marginBottom: "18px",
+          }}
+        >
           إنشاء فاتورة جديدة
         </div>
 
-        {/* Row 1: Merchant Name */}
+        {/* Row 1: Merchant Name with Autocomplete */}
         <div style={{ marginBottom: "18px" }}>
           <label style={c.label}>اسم التاجر</label>
-          <input
-            style={c.input}
-            placeholder="أدخل اسم التاجر"
+          <Autocomplete
             value={draft.merchantName}
-            onChange={(e) => onChange({ merchantName: e.target.value })}
+            onChange={(val) =>
+              onChange({ merchantName: val, merchantId: undefined })
+            }
+            onSelect={(label, id) =>
+              onChange({ merchantName: label, merchantId: id })
+            }
+            suggestions={merchantSuggestions}
+            placeholder="أدخل اسم التاجر أو ابحث عن موجود..."
           />
+          {draft.merchantId && (
+            <div
+              style={{
+                marginTop: "5px",
+                fontSize: "12px",
+                color: "#10B981",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              ✓ تاجر محفوظ — سيتم ربط الفاتورة بحسابه
+            </div>
+          )}
         </div>
 
-        {/* Row 2: Two-column layout (boxes RIGHT | products LEFT in RTL) */}
-        <div style={{ display: "flex", gap: "20px", marginBottom: "0" }}>
+        {/* نوع الفاتورة في نفس التصميم الأصلي للأزرار الكبيرة */}
+        <div style={{ marginBottom: "18px" }}>
+          <label style={c.label}>نوع الفاتورة</label>
+          <div style={{ display: "flex", gap: "12px" }}>
+            {(["DATES", "VEG_FRUIT"] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => onChange({ invoiceType: type })}
+                style={{
+                  flex: 1,
+                  padding: "12px",
+                  borderRadius: "8px",
+                  border: "2px solid",
+                  borderColor:
+                    draft.invoiceType === type ? "#2563EB" : "#E2E8F0",
+                  backgroundColor:
+                    draft.invoiceType === type ? "#EFF6FF" : "white",
+                  color:
+                    draft.invoiceType === type ? "#1D4ED8" : "#64748B",
+                  fontFamily: "'Cairo', sans-serif",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                {type === "DATES" ? "🌴 فاتورة تمور" : "🍎 فاتورة خضر وفواكه"}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          {/* RIGHT column (RTL first = right): Boxes */}
+        {/* Row 2: Two-column layout */}
+        <div style={{ display: "flex", gap: "20px" }}>
+          {/* RIGHT column: Boxes */}
           <div
             style={{
               width: "270px",
@@ -129,11 +346,17 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
               padding: "14px",
             }}
           >
-            <div style={{ color: "#374151", fontSize: "13px", fontWeight: 600, marginBottom: "10px" }}>
-              الصناديق
+            <div
+              style={{
+                color: "#374151",
+                fontSize: "13px",
+                fontWeight: 600,
+                marginBottom: "10px",
+              }}
+            >
+              الصناديق النشطة
             </div>
 
-            {/* Scrollable box list */}
             <div
               style={{
                 maxHeight: "220px",
@@ -146,10 +369,26 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...c.th, padding: "8px 12px", fontSize: "12px", position: "sticky", top: 0 }}>
+                    <th
+                      style={{
+                        ...c.th,
+                        padding: "8px 12px",
+                        fontSize: "12px",
+                        position: "sticky",
+                        top: 0,
+                      }}
+                    >
                       الصندوق
                     </th>
-                    <th style={{ ...c.th, padding: "8px 12px", fontSize: "12px", position: "sticky", top: 0 }}>
+                    <th
+                      style={{
+                        ...c.th,
+                        padding: "8px 12px",
+                        fontSize: "12px",
+                        position: "sticky",
+                        top: 0,
+                      }}
+                    >
                       الوزن (كغ)
                     </th>
                   </tr>
@@ -157,8 +396,24 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
                 <tbody>
                   {draft.boxes.map((box) => (
                     <tr key={box.id}>
-                      <td style={{ ...c.td, padding: "8px 12px", fontSize: "13px", fontWeight: 500 }}>
+                      <td
+                        style={{
+                          ...c.td,
+                          padding: "8px 12px",
+                          fontSize: "13px",
+                          fontWeight: 500,
+                        }}
+                      >
                         {box.name}
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            color: "#94A3B8",
+                            fontWeight: 400,
+                          }}
+                        >
+                          فارغ: {box.emptyWeight} كغ
+                        </div>
                       </td>
                       <td style={{ ...c.td, padding: "6px 12px" }}>
                         <input
@@ -186,8 +441,15 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
                 </tbody>
               </table>
               {draft.boxes.length === 0 && (
-                <div style={{ padding: "16px", textAlign: "center", color: "#94A3B8", fontSize: "12px" }}>
-                  لا توجد صناديق نشطة
+                <div
+                  style={{
+                    padding: "16px",
+                    textAlign: "center",
+                    color: "#94A3B8",
+                    fontSize: "12px",
+                  }}
+                >
+                  لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
                 </div>
               )}
             </div>
@@ -205,23 +467,56 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
                 border: "1px solid #DBEAFE",
               }}
             >
-              <span style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}>الوزن الصافي الإجمالي</span>
-              <span style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}>
+              <span
+                style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}
+              >
+                الوزن الصافي
+              </span>
+              <span
+                style={{
+                  color: "#1D4ED8",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                }}
+              >
                 {totalNetWeight.toFixed(2)} كغ
               </span>
             </div>
           </div>
 
-          {/* LEFT column (RTL second = left): Product fields */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "14px" }}>
+          {/* LEFT column: Product fields with Autocomplete */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+            }}
+          >
             <div>
               <label style={c.label}>اسم المنتج</label>
-              <input
-                style={c.input}
-                placeholder="أدخل اسم المنتج"
+              <Autocomplete
                 value={draft.productInput}
-                onChange={(e) => onChange({ productInput: e.target.value })}
+                onChange={(val) =>
+                  onChange({ productInput: val, productId: undefined })
+                }
+                onSelect={(label, id) =>
+                  onChange({ productInput: label, productId: id })
+                }
+                suggestions={productSuggestions}
+                placeholder="أدخل اسم المنتج أو ابحث..."
               />
+              {draft.productId && (
+                <div
+                  style={{
+                    marginTop: "4px",
+                    fontSize: "12px",
+                    color: "#10B981",
+                  }}
+                >
+                  ✓ منتج محفوظ
+                </div>
+              )}
             </div>
             <div>
               <label style={c.label}>الوزن (كغ)</label>
@@ -236,7 +531,7 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
               />
             </div>
             <div>
-              <label style={c.label}>سعر المنتج (ريال/كغ)</label>
+              <label style={c.label}>سعر المنتج (دج/كغ)</label>
               <input
                 type="number"
                 style={c.input}
@@ -247,11 +542,28 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
                 step="0.01"
               />
             </div>
+            {/* ملخص الصندوق المرتبط بهذا المنتج */}
+            {totalNetWeight > 0 && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  backgroundColor: "#F0FDF4",
+                  border: "1px solid #BBF7D0",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  color: "#166534",
+                }}
+              >
+                الوزن الصافي من الصناديق:{" "}
+                <strong>{totalNetWeight.toFixed(2)} كغ</strong> — سيُسجَّل مع
+                هذا السطر
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ── LARGE INSERT BUTTON ── */}
+      {/* ── INSERT BUTTON ── */}
       <button
         onClick={handleInsert}
         style={{
@@ -273,15 +585,9 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
           boxShadow: canInsert ? "0 4px 14px rgba(37,99,235,0.35)" : "none",
           transition: "all 0.15s",
         }}
-        onMouseEnter={(e) => {
-          if (canInsert) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#1D4ED8";
-        }}
-        onMouseLeave={(e) => {
-          if (canInsert) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2563EB";
-        }}
       >
         <Plus size={22} strokeWidth={2.5} />
-        إدراج
+        إدراج السطر
       </button>
 
       {/* ── INVOICE TABLE ── */}
@@ -307,36 +613,102 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
           <span style={{ color: "#1E293B", fontSize: "15px", fontWeight: 600 }}>
             بنود الفاتورة
             {draft.merchantName && (
-              <span style={{ color: "#2563EB", marginRight: "8px", fontSize: "14px", fontWeight: 500 }}>
+              <span
+                style={{
+                  color: "#2563EB",
+                  marginRight: "8px",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                }}
+              >
                 — {draft.merchantName}
               </span>
             )}
+            {/* ملصق نوع الفاتورة في جدول البنود */}
+            <span
+              style={{
+                marginRight: "8px",
+                fontSize: "12px",
+                backgroundColor: draft.invoiceType === "DATES" ? "#ECFDF5" : "#EFF6FF",
+                color: draft.invoiceType === "DATES" ? "#047857" : "#1D4ED8",
+                padding: "2px 8px",
+                borderRadius: "4px",
+                border: "1px solid",
+                borderColor: draft.invoiceType === "DATES" ? "#A7F3D0" : "#BFDBFE"
+              }}
+            >
+              {draft.invoiceType === "DATES" ? "🌴 تمور" : "🍎 خضر وفواكه"}
+            </span>
           </span>
-          <span style={{ color: "#94A3B8", fontSize: "13px" }}>{draft.rows.length} بند</span>
+          <span style={{ color: "#94A3B8", fontSize: "13px" }}>
+            {draft.rows.length} بند
+          </span>
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["#", "اسم المنتج", "الوزن (كغ)", "سعر المنتج", "الإجمالي", "الإجراءات"].map((h) => (
-                <th key={h} style={c.th}>{h}</th>
+              {[
+                "#",
+                "اسم المنتج",
+                "الوزن (كغ)",
+                "سعر المنتج",
+                "صناديق",
+                "الإجمالي",
+                "الإجراءات",
+              ].map((h) => (
+                <th key={h} style={c.th}>
+                  {h}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {draft.rows.map((row, i) => (
-              <tr key={row.id} style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}>
-                <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>{i + 1}</td>
+              <tr
+                key={row.id}
+                style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}
+              >
+                <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>
+                  {i + 1}
+                </td>
                 <td style={{ ...c.td, fontWeight: 500 }}>{row.product}</td>
                 <td style={c.td}>{row.weight.toFixed(1)}</td>
                 <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>
-                  {row.price.toFixed(2)} ريال
+                  {row.price.toFixed(2)} دج
                 </td>
-                <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
-                  {(row.weight * row.price).toLocaleString("ar-SA", {
+                <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
+                  {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                      {row.boxesSnapshot.map((bs, idx) => {
+                        const boxDef = draft.boxes.find((b) => b.id === bs.id);
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              backgroundColor: "#F1F5F9",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                            }}
+                          >
+                            {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span style={{ color: "#CBD5E1" }}>—</span>
+                  )}
+                </td>
+                <td
+                  style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}
+                >
+                  {(row.weight * row.price).toLocaleString("ar-DZ", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  })} ريال
+                  })}{" "}
+                  دج
                 </td>
                 <td style={c.td}>
                   <button
@@ -365,15 +737,32 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
 
             {/* Grand Total Row */}
             {draft.rows.length > 0 && (
-              <tr style={{ backgroundColor: "#EFF6FF", borderTop: "2px solid #BFDBFE" }}>
-                <td style={{ ...c.td, fontWeight: 700, color: "#1E40AF" }} colSpan={4}>
+              <tr
+                style={{
+                  backgroundColor: "#EFF6FF",
+                  borderTop: "2px solid #BFDBFE",
+                }}
+              >
+                <td
+                  style={{ ...c.td, fontWeight: 700, color: "#1E40AF" }}
+                  colSpan={5}
+                >
                   الإجمالي الكلي
                 </td>
-                <td style={{ ...c.td, fontWeight: 800, color: "#1E40AF", fontSize: "15px" }} colSpan={2}>
-                  {grandTotal.toLocaleString("ar-SA", {
+                <td
+                  style={{
+                    ...c.td,
+                    fontWeight: 800,
+                    color: "#1E40AF",
+                    fontSize: "15px",
+                  }}
+                  colSpan={2}
+                >
+                  {grandTotal.toLocaleString("ar-DZ", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  })} ريال
+                  })}{" "}
+                  دج
                 </td>
               </tr>
             )}
@@ -381,25 +770,36 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
         </table>
 
         {draft.rows.length === 0 && (
-          <div style={{ padding: "40px", textAlign: "center", color: "#94A3B8", fontSize: "14px" }}>
+          <div
+            style={{
+              padding: "40px",
+              textAlign: "center",
+              color: "#94A3B8",
+              fontSize: "14px",
+            }}
+          >
             لا توجد بنود — أضف منتجاً باستخدام النموذج أعلاه
           </div>
         )}
       </div>
 
       {/* ── SAVE BUTTONS ── */}
-      <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+      <div
+        style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}
+      >
         <button
           onClick={() => onSave(true)}
+          disabled={isSaving || draft.rows.length === 0}
           style={{
             backgroundColor: "white",
-            color: "#374151",
+            color: isSaving || draft.rows.length === 0 ? "#94A3B8" : "#374151",
             border: "1px solid #CBD5E1",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor: "pointer",
+            cursor:
+              isSaving || draft.rows.length === 0 ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -411,15 +811,18 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
         </button>
         <button
           onClick={() => onSave(false)}
+          disabled={isSaving || draft.rows.length === 0}
           style={{
-            backgroundColor: "#2563EB",
+            backgroundColor:
+              isSaving || draft.rows.length === 0 ? "#93C5FD" : "#2563EB",
             color: "white",
             border: "none",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor: "pointer",
+            cursor:
+              isSaving || draft.rows.length === 0 ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -427,7 +830,7 @@ export function InvoiceForm({ draft, onChange, onSave }: InvoiceFormProps) {
           }}
         >
           <Save size={16} />
-          حفظ
+          {isSaving ? "جاري الحفظ..." : "حفظ"}
         </button>
       </div>
     </div>
