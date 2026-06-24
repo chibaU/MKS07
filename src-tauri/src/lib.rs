@@ -1,8 +1,10 @@
+use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
+use std::fs;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 1. تجهيز الهيكل المحسن وإضافة كافة الجداول والفهارس لنظام MKS
+    // تم تحديث الهيكل مباشرة في الـ Version 1 لقطع الترابط نهائياً
     let migrations = vec![
         Migration {
             version: 1,
@@ -29,7 +31,7 @@ pub fn run() {
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
 
-                -- جدول المنتجات
+                -- جدول المنتجات (يعمل كقاعدة للاقتراحات المكتوبة فقط Auto-suggest)
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE
@@ -53,16 +55,15 @@ pub fn run() {
                     FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
                 );
 
-                -- جدول تفاصيل الفاتورة
+                -- جدول تفاصيل الفاتورة (تم تغيير product_id إلى product_name ليكون نصاً حراً)
                 CREATE TABLE IF NOT EXISTS invoice_details (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     invoice_id INTEGER NOT NULL,
-                    product_id INTEGER NOT NULL,
+                    product_name TEXT NOT NULL, -- ✨ نص حر مباشر ولا يعتمد على مفتاح أجنبي
                     quantity REAL NOT NULL,
                     price REAL NOT NULL,
                     subtotal REAL NOT NULL,
-                    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
-                    FOREIGN KEY (product_id) REFERENCES products(id)
+                    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
                 );
 
                 -- جدول تفاصيل صناديق السطر
@@ -75,7 +76,7 @@ pub fn run() {
                     FOREIGN KEY (box_id) REFERENCES boxes(id)
                 );
 
-                -- فهارس (Indexes) لضمان سرعة البحث الفورية مع آلاف الفواتير
+                -- فهارس (Indexes) لضمان سرعة البحث الفورية
                 CREATE INDEX IF NOT EXISTS idx_invoices_merchant ON invoices(merchant_id);
                 CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date);
                 CREATE INDEX IF NOT EXISTS idx_details_invoice ON invoice_details(invoice_id);
@@ -91,6 +92,13 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // 🚀 فقط نتأكد من أن مجلد التطبيق موجود ليتم إنشاء قاعدة البيانات بداخله بنجاح
+            if let Ok(app_dir) = app.handle().path().app_data_dir() {
+                if !app_dir.exists() {
+                    let _ = fs::create_dir_all(&app_dir);
+                }
+            }
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

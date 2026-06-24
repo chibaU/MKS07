@@ -61,7 +61,7 @@ interface AutocompleteProps {
   style?: React.CSSProperties;
 }
 
-const VISIBLE_LIMIT = 10; // Maximum number of suggestions to show
+const VISIBLE_LIMIT = 10;
 
 function AutocompleteInner({
   value,
@@ -218,7 +218,6 @@ export function InvoiceForm({
   merchants,
   products,
 }: InvoiceFormProps) {
-  const [isSaving] = useState(false);
 
   // ── Merchant / Product suggestion lists ─────────────────────────────────────
 
@@ -252,7 +251,7 @@ export function InvoiceForm({
     const row: DraftRow = {
       id: Date.now() + Math.random(),
       product: draft.productInput,
-      productId: draft.productId ?? null,
+      productId: draft.productId ?? null, // حقل الـ ID اختياري ويحفظ كـ null إن كتب مباشرة
       weight: parseFloat(draft.weightInput) || 0,
       price: parseFloat(draft.priceInput) || 0,
       boxesSnapshot: draft.boxes
@@ -478,7 +477,7 @@ export function InvoiceForm({
             </div>
           </div>
 
-          {/* LEFT column: Product fields with Autocomplete */}
+          {/* LEFT column: Product fields with Autocomplete suggestions */}
           <div
             style={{
               flex: 1,
@@ -492,13 +491,13 @@ export function InvoiceForm({
               <Autocomplete
                 value={draft.productInput}
                 onChange={(val) =>
-                  onChange({ productInput: val, productId: null })
+                  onChange({ productInput: val, productId: null }) // عند الكتابة اليدوية، يتم تصفير الـ id مع الحفاظ على النص المكتوب
                 }
                 onSelect={(label, id) =>
-                  onChange({ productInput: label, productId: id })
+                  onChange({ productInput: label, productId: id }) // عند الاختيار من التلميحات يربط بالـ id للـ reference التلقائي
                 }
                 suggestions={productSuggestions}
-                placeholder="أدخل اسم المنتج أو ابحث..."
+                placeholder="أدخل اسم المنتج مباشرة أو اختر المقترح..."
               />
               {draft.productId && (
                 <div

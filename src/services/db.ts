@@ -39,7 +39,7 @@ export interface Invoice {
 export interface InvoiceDetail {
   id: number;
   invoice_id: number;
-  product_id: NullableNumber;
+  product_name: string; 
   quantity: number;
   price: number;
   subtotal: number;
@@ -63,7 +63,7 @@ export interface CreateInvoiceDetailBox {
 }
 
 export interface CreateInvoiceDetail {
-  product_id: number;
+  product_name: string;       // Elاسم المكتوب مباشرة في حقل الإدخال
   quantity: number;
   price: number;
   subtotal: number;
@@ -81,7 +81,6 @@ export interface InvoiceDetailBoxFull extends InvoiceDetailBox {
 }
 
 export interface InvoiceDetailFull extends InvoiceDetail {
-  product_name: NullableString;
   boxes: InvoiceDetailBoxFull[];
 }
 
@@ -89,9 +88,7 @@ export interface InvoiceFullDetails extends InvoiceWithMerchant {
   details: InvoiceDetailFull[];
 }
 
-interface InvoiceDetailRow extends InvoiceDetail {
-  product_name: NullableString;
-}
+interface InvoiceDetailRow extends InvoiceDetail {}
 
 interface InvoiceDetailBoxRow extends InvoiceDetailBox {
   detail_id: number;
@@ -280,11 +277,12 @@ export const invoiceService = {
       const invoiceId = requireLastInsertId(invoiceResult, 'invoice');
 
       for (const detail of details) {
+        // يتم الآن إدخال حقل product_name بشكل مباشر في الجدول لحفظ النص الثابت
         const detailResult = await db.execute(
-          'INSERT INTO invoice_details (invoice_id, product_id, quantity, price, subtotal) VALUES ($1, $2, $3, $4, $5)',
+          'INSERT INTO invoice_details (invoice_id, product_name, quantity, price, subtotal) VALUES ($1, $2, $3, $4, $5)',
           [
             invoiceId,
-            detail.product_id,
+            detail.product_name,
             detail.quantity,
             detail.price,
             detail.subtotal
@@ -367,17 +365,17 @@ export const invoiceService = {
       return null;
     }
 
+    // هنا قمنا بالاعتماد المباشر على الحقل المخزن بالجدول invoice_details.product_name 
+    // دون الحاجة لربط مصلحي (LEFT JOIN products) لإحضار الاسم
     const detailRows = await db.select<InvoiceDetailRow[]>(
       `SELECT
         invoice_details.id,
         invoice_details.invoice_id,
-        invoice_details.product_id,
+        invoice_details.product_name,
         invoice_details.quantity,
         invoice_details.price,
-        invoice_details.subtotal,
-        products.name AS product_name
+        invoice_details.subtotal
       FROM invoice_details
-      LEFT JOIN products ON products.id = invoice_details.product_id
       WHERE invoice_details.invoice_id = $1
       ORDER BY invoice_details.id ASC`,
       [invoiceId]

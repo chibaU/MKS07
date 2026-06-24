@@ -3,8 +3,8 @@ import { Plus, X } from "lucide-react";
 import type { SharedBox } from "../App";
 import type { Draft } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
-// 1. استيراد الخدمات الخاصة بقاعدة البيانات لجلب التجار والمنتجات
-import { merchantService, productService, type Merchant, type Product } from "../services/db";
+// 1. استيراد الخدمات الخاصة بقاعدة البيانات لجلب وحفظ الفواتير والتجار والمنتجات
+import { merchantService, productService, invoiceService, type Merchant, type Product } from "../services/db";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -144,12 +144,59 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
     }
   };
 
-  // ── Save ────────────────────────────────────────────────────────────────────
+  // ── Save Action ─────────────────────────────────────────────────────────────
 
-  const handleSave = (andPrint = false) => {
-    setSavedTabId(activeId);
-    setTimeout(() => setSavedTabId(null), 2000);
-    if (andPrint) window.print();
+  const handleSave = async (andPrint = false) => {
+    if (activeDraft.rows.length === 0) return;
+
+    try {
+      // أ) حساب المجموع الكلي للفاتورة الحالية
+      const totalAmount = activeDraft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
+
+      // ب) تجهيز البيانات الفوقية للفاتورة
+      const invoiceData = {
+        merchant_id: activeDraft.merchantId ?? null, // يحفظ كـ null إن كان التاجر مكتوباً يدوياً وغير محفوظ
+        invoice_type: "VEG_FRUIT", // نوع الفاتورة الافتراضي، يمكنك تعديله حسب الحاجة
+        invoice_date: new Date().toISOString().split("T")[0], // التاريخ الحالي بصيغة YYYY-MM-DD
+        total_amount: totalAmount,
+      };
+
+      // ج) تحويل السطور والهياكل المتوافقة مع الإدخال الحر للـ تفاصيل
+      const details = activeDraft.rows.map((row) => ({
+        product_id: row.productId, // رقم المعرف المحفوظ أو null في حال الكتابة اليدوية المباشرة
+        product_name: row.product, // نص اسم المنتج المباشر الذي سيسجل ثابتاً في تفاصيل الفاتورة
+        quantity: row.weight,
+        price: row.price,
+        subtotal: row.weight * row.price,
+        boxes: row.boxesSnapshot.map((b) => ({
+          box_id: b.id,
+          box_count: b.boxCount,
+        })),
+      }));
+
+      // د) استدعاء الخدمة لإرسال البيانات وحفظها في المعاملة البرمجية لقاعدة البيانات
+      await invoiceService.createInvoice(invoiceData, details);
+
+      // هـ) إظهار إشعار تم الحفظ بنجاح مؤقتاً
+      setSavedTabId(activeId);
+      setTimeout(() => setSavedTabId(null), 2000);
+
+      // و) تشغيل الطباعة عند الطلب
+      if (andPrint) {
+        setTimeout(() => {
+          window.print();
+        }, 100);
+      }
+
+      // ز) تصفير بيانات التبويب الحالي لتهيئته للفاتورة القادمة
+      setDrafts((prev) =>
+        prev.map((d) => (d.id === activeId ? makeDraft(activeId, sharedBoxes) : d))
+      );
+
+    } catch (error) {
+      console.error("خطأ حدث أثناء حفظ الفاتورة في قاعدة البيانات:", error);
+      alert("تعذر حفظ الفاتورة، يرجى مراجعة سجل الأخطاء.");
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
