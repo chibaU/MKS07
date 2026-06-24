@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { Trash2, Plus, Save, Printer } from "lucide-react";
 import type { Draft, DraftRow } from "./invoice";
 import { type Merchant, type Product } from "../services/db";
@@ -61,7 +61,9 @@ interface AutocompleteProps {
   style?: React.CSSProperties;
 }
 
-function Autocomplete({
+const VISIBLE_LIMIT = 100; // Maximum number of suggestions to show
+
+function AutocompleteInner({
   value,
   onChange,
   onSelect,
@@ -72,20 +74,45 @@ function Autocomplete({
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  const filtered = suggestions.filter((s) =>
-    s.label.toLowerCase().includes(value.toLowerCase())
-  );
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHighlighted(-1);
+  }, [suggestions]);
+
+  const filtered = useMemo(() => {
+    if (!value.trim()) return suggestions.slice(0, VISIBLE_LIMIT);
+    const q = value.toLowerCase();
+    const results: typeof suggestions = [];
+    for (const s of suggestions) {
+      if (s.label.toLowerCase().includes(q)) {
+        results.push(s);
+        if (results.length >= VISIBLE_LIMIT) break;
       }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+    }
+    return results;
+  }, [value, suggestions]);
+
+  const handleBlur = (e: React.FocusEvent) => {
+    const relatedTarget = e.relatedTarget as Node | null;
+    if (relatedTarget && !wrapRef.current?.contains(relatedTarget)) {
+      setOpen(false);
+    } else if (!relatedTarget) {
+      setTimeout(() => {
+      setOpen(false);
+    }, 150);
+    }
+  };
+
+  useEffect(() => {
+    if (highlighted >= 0 && highlighted < filtered.length && listRef.current) {
+      const activeEl = listRef.current.children[highlighted] as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [filtered.length, highlighted]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open || filtered.length === 0) return;
@@ -98,6 +125,7 @@ function Autocomplete({
     } else if (e.key === "Enter" && highlighted >= 0) {
       e.preventDefault();
       const item = filtered[highlighted];
+      if (!item) return;
       onSelect(item.label, item.id);
       setOpen(false);
       setHighlighted(-1);
@@ -107,7 +135,11 @@ function Autocomplete({
   };
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+    <div
+      ref={wrapRef}
+      onBlur={handleBlur}
+      style={{ position: "relative", width: "100%" }}
+    >
       <input
         style={{ ...c.input, ...style }}
         value={value}
@@ -123,6 +155,7 @@ function Autocomplete({
       />
       {open && filtered.length > 0 && (
         <div
+          ref={listRef}
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
@@ -156,7 +189,6 @@ function Autocomplete({
                 backgroundColor: idx === highlighted ? "#EFF6FF" : "white",
                 borderBottom:
                   idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
-                transition: "background 0.1s",
               }}
             >
               {item.label}
@@ -168,18 +200,17 @@ function Autocomplete({
   );
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
+// ─── Main Component Props ─────────────────────────────────────────────────────
 
 interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
-  onSave: (andPrint: boolean) => void;
-  merchants?: Merchant[];
-  products?: Product[];
-  isSaving?: boolean;
+  onSave: (andPrint?: boolean) => void;
+  merchants: Merchant[]; // ✅ تم الإصلاح: استقبال مصفوفة التجار القادمة من قاعدة البيانات
+  products: Product[]; // ✅ تم الإصلاح: استقبال مصفوفة المنتجات القادمة من قاعدة البيانات
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const Autocomplete = memo(AutocompleteInner);
 
 export function InvoiceForm({
   draft,
@@ -187,41 +218,41 @@ export function InvoiceForm({
   onSave,
   merchants,
   products,
-  isSaving = false,
 }: InvoiceFormProps) {
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ── Merchant / Product suggestion lists ─────────────────────────────────────
+
+  // ✅ تم الإصلاح: تحويل المجموعات باستخدام useMemo لمنع استهلاك المعالج مع الرندرة المكررة للفواتير المفتوحة
+  const merchantSuggestions = useMemo(() => {
+    return merchants?.map((m) => ({ id: m.id, label: m.name })) || [];
+  }, [merchants]);
+
+  const productSuggestions = useMemo(() => {
+    return products?.map((p) => ({ id: p.id, label: p.name })) || [];
+  }, [products]);
+
   // ── Box inputs ──────────────────────────────────────────────────────────────
 
   const updateBox = (boxId: number, val: string) =>
     onChange({
       boxes: draft.boxes.map((b) =>
-        b.id === boxId ? { ...b, grossInput: parseFloat(val) || 0 } : b
+        b.id === boxId ? { ...b, grossInput: parseFloat(val) || 0 } : b,
       ),
     });
 
   const totalNetWeight = draft.boxes.reduce(
     (sum, b) => sum + Math.max(0, b.grossInput - b.emptyWeight),
-    0
+    0,
   );
-
-  // ── Merchant / Product suggestion lists ─────────────────────────────────────
-
-  const merchantSuggestions = merchants?.map((m) => ({
-    id: m.id,
-    label: m.name,
-  })) || [];
-
-  const productSuggestions = products?.map((p) => ({
-    id: p.id,
-    label: p.name,
-  })) || [];
 
   // ── Row insert ──────────────────────────────────────────────────────────────
 
   const handleInsert = () => {
-    if (!draft.productInput || !draft.weightInput) return;
+    if (!draft.productInput.trim() || !draft.weightInput) return;
 
     const row: DraftRow = {
-      id: Date.now(),
+      id: Date.now()+ Math.random(),
       product: draft.productInput,
       productId: draft.productId ?? null,
       weight: parseFloat(draft.weightInput) || 0,
@@ -247,10 +278,7 @@ export function InvoiceForm({
   const deleteRow = (rowId: number) =>
     onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
 
-  const grandTotal = draft.rows.reduce(
-    (sum, r) => sum + r.weight * r.price,
-    0
-  );
+  const grandTotal = draft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
 
   const canInsert = Boolean(draft.productInput && draft.weightInput);
 
@@ -318,8 +346,7 @@ export function InvoiceForm({
                     draft.invoiceType === type ? "#2563EB" : "#E2E8F0",
                   backgroundColor:
                     draft.invoiceType === type ? "#EFF6FF" : "white",
-                  color:
-                    draft.invoiceType === type ? "#1D4ED8" : "#64748B",
+                  color: draft.invoiceType === type ? "#1D4ED8" : "#64748B",
                   fontFamily: "'Cairo', sans-serif",
                   fontSize: "14px",
                   fontWeight: 600,
@@ -498,7 +525,7 @@ export function InvoiceForm({
               <Autocomplete
                 value={draft.productInput}
                 onChange={(val) =>
-                  onChange({ productInput: val, productId: undefined })
+                  onChange({ productInput: val, productId: null })
                 }
                 onSelect={(label, id) =>
                   onChange({ productInput: label, productId: id })
@@ -566,6 +593,7 @@ export function InvoiceForm({
       {/* ── INSERT BUTTON ── */}
       <button
         onClick={handleInsert}
+        disabled={!draft.productInput.trim() || !draft.weightInput} // ✅ تعطيل الزر برمجياً لمنع النقرات العشوائية
         style={{
           width: "100%",
           height: "58px",
@@ -629,12 +657,14 @@ export function InvoiceForm({
               style={{
                 marginRight: "8px",
                 fontSize: "12px",
-                backgroundColor: draft.invoiceType === "DATES" ? "#ECFDF5" : "#EFF6FF",
+                backgroundColor:
+                  draft.invoiceType === "DATES" ? "#ECFDF5" : "#EFF6FF",
                 color: draft.invoiceType === "DATES" ? "#047857" : "#1D4ED8",
                 padding: "2px 8px",
                 borderRadius: "4px",
                 border: "1px solid",
-                borderColor: draft.invoiceType === "DATES" ? "#A7F3D0" : "#BFDBFE"
+                borderColor:
+                  draft.invoiceType === "DATES" ? "#A7F3D0" : "#BFDBFE",
               }}
             >
               {draft.invoiceType === "DATES" ? "🌴 تمور" : "🍎 خضر وفواكه"}
@@ -679,7 +709,9 @@ export function InvoiceForm({
                 </td>
                 <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
                   {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    <div
+                      style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
+                    >
                       {row.boxesSnapshot.map((bs, idx) => {
                         const boxDef = draft.boxes.find((b) => b.id === bs.id);
                         return (
@@ -701,9 +733,7 @@ export function InvoiceForm({
                     <span style={{ color: "#CBD5E1" }}>—</span>
                   )}
                 </td>
-                <td
-                  style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}
-                >
+                <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
                   {(row.weight * row.price).toLocaleString("ar-DZ", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
@@ -784,9 +814,7 @@ export function InvoiceForm({
       </div>
 
       {/* ── SAVE BUTTONS ── */}
-      <div
-        style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}
-      >
+      <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
         <button
           onClick={() => onSave(true)}
           disabled={isSaving || draft.rows.length === 0}

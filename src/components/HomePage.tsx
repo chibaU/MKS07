@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import type { SharedBox } from "../App";
 import type { Draft } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
+// 1. استيراد الخدمات الخاصة بقاعدة البيانات لجلب التجار والمنتجات
+import { merchantService, productService, type Merchant, type Product } from "../services/db";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -10,6 +12,7 @@ function makeDraft(id: string, sharedBoxes: SharedBox[]): Draft {
   return {
     id,
     merchantName: "",
+    invoiceType: "DATES",
     productInput: "",
     weightInput: "",
     priceInput: "",
@@ -78,7 +81,6 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
-  // Stable initial draft ID using useRef (safe in StrictMode)
   const initialIdRef = useRef<string | null>(null);
   if (!initialIdRef.current) initialIdRef.current = newId();
 
@@ -88,6 +90,25 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
   const [activeId, setActiveId] = useState<string>(initialIdRef.current);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   const [savedTabId, setSavedTabId] = useState<string | null>(null);
+
+  // 2. تعريف حالات (States) لتخزين قائمة التجار والمنتجات القادمة من قاعدة البيانات
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  // 3. جلب البيانات الفورية من الداتابيز بمجرد تحميل الصفحة
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const allMerchants = await merchantService.getAll();
+        const allProducts = await productService.getAll();
+        setMerchants(allMerchants);
+        setProducts(allProducts);
+      } catch (err) {
+        console.error("خطأ أثناء جلب بيانات التجار والمنتجات التلقائية:", err);
+      }
+    }
+    loadData();
+  }, []);
 
   const activeDraft = drafts.find((d) => d.id === activeId) ?? drafts[0];
 
@@ -130,8 +151,6 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
     setSavedTabId(activeId);
     setTimeout(() => setSavedTabId(null), 2000);
     if (andPrint) window.print();
-    // After 1.5s close the tab
-    setTimeout(() => doClose(activeId), 1500);
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -235,11 +254,14 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
         </button>
       </div>
 
-      {/* ── PAGE CONTENT: delegated to InvoiceForm ── */}
+      {/* ── PAGE CONTENT ── */}
+      {/* 4. قمنا بتمرير المصفوفات الحقيقية هنا للتجار والمنتجات */}
       <InvoiceForm
         draft={activeDraft}
         onChange={(patch) => patchDraft(activeId, patch)}
         onSave={handleSave}
+        merchants={merchants}
+        products={products}
       />
 
       {/* ── CONFIRM CLOSE DIALOG ── */}

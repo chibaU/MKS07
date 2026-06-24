@@ -24,10 +24,10 @@ export interface Draft {
   merchantName: string;
   merchantId?: number;
   invoiceType: "DATES" | "VEG_FRUIT"; // we have only 2 types of invoices
+  productInput: string; // ← أضف هذا
   productId?: number;
   weightInput: string;
   priceInput: string;
   boxes: DraftBox[];
   rows: DraftRow[];
 }
-
