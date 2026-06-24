@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { HomePage } from "./components/HomePage";
 import { MerchantsPage } from "./components/MerchantsPage";
@@ -6,41 +6,42 @@ import { ProductsPage } from "./components/ProductsPage";
 import { InvoicesPage } from "./components/InvoicesPage";
 import { BoxesPage } from "./components/BoxesPage";
 import { SettingsPage } from "./components/SettingsPage";
+import { boxService, type Box } from "./services/db";
+import { makeDraft } from "./components/InvoiceManager";
+import type { Draft } from "./components/invoice";
 
 type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
 
-export interface SharedBox {
-  id: number;
-  name: string;
-  emptyWeight: number;
-  visible: boolean;
-}
-
-const INITIAL_BOXES: SharedBox[] = [
-  { id: 1, name: "صندوق A", emptyWeight: 2.5, visible: true },
-  { id: 2, name: "صندوق B", emptyWeight: 3.0, visible: true },
-  { id: 3, name: "صندوق C", emptyWeight: 2.0, visible: true },
-  { id: 4, name: "صندوق D", emptyWeight: 1.5, visible: true },
-  { id: 5, name: "صندوق E", emptyWeight: 2.0, visible: true },
-  { id: 6, name: "صندوق خاص", emptyWeight: 5.5, visible: true },
-];
-
 const SIDEBAR_WIDTH = 240;
+const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 export default function App() {
   const [activePage, setActivePage] = useState<Page>("home");
-  const [sharedBoxes, setSharedBoxes] = useState<SharedBox[]>(INITIAL_BOXES);
 
-  const renderPage = () => {
-    switch (activePage) {
-      case "home":     return <HomePage sharedBoxes={sharedBoxes} />;
-      case "merchants": return <MerchantsPage />;
-      case "products":  return <ProductsPage />;
-      case "invoices":  return <InvoicesPage />;
-      case "boxes":     return <BoxesPage sharedBoxes={sharedBoxes} setSharedBoxes={setSharedBoxes} />;
-      case "settings":  return <SettingsPage />;
+  // ── حالة الصناديق والمسودات مرفوعة إلى App لتبقى محفوظة عند التنقل بين الصفحات
+  const [realBoxes, setRealBoxes] = useState<Box[]>([]);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
+  const [boxesLoading, setBoxesLoading] = useState<boolean>(true);
+
+  // تحميل الصناديق مرة واحدة فقط عند تشغيل التطبيق
+  useEffect(() => {
+    async function fetchDBBoxes() {
+      try {
+        const visibleBoxes = await boxService.getVisible();
+        setRealBoxes(visibleBoxes);
+
+        const firstId = newId();
+        setDrafts([makeDraft(firstId, visibleBoxes)]);
+        setActiveId(firstId);
+      } catch (err) {
+        console.error("خطأ أثناء تحميل الصناديق:", err);
+      } finally {
+        setBoxesLoading(false);
+      }
     }
-  };
+    fetchDBBoxes();
+  }, []);
 
   return (
     <div
@@ -62,7 +63,34 @@ export default function App() {
           overflowY: "auto",
         }}
       >
-        {renderPage()}
+        {/*
+          ── نستخدم display:none بدلاً من إزالة المكون من DOM
+          ── هذا يبقي الـ state محفوظاً في الذاكرة حتى عند الانتقال لصفحة أخرى
+        */}
+
+        {/* الصفحة الرئيسية - تبقى مُحمَّلة دائماً في الخلفية */}
+        <div style={{ display: activePage === "home" ? "block" : "none" }}>
+          {boxesLoading || drafts.length === 0 ? (
+            <div style={{ padding: "40px", textAlign: "center", fontFamily: "'Cairo', sans-serif", color: "#64748B" }}>
+              جاري تهيئة نظام الصناديق والمسودات الحية...
+            </div>
+          ) : (
+            <HomePage
+              realBoxes={realBoxes}
+              drafts={drafts}
+              setDrafts={setDrafts}
+              activeId={activeId}
+              setActiveId={setActiveId}
+            />
+          )}
+        </div>
+
+        {/* بقية الصفحات - تُحمَّل فقط عند الحاجة */}
+        {activePage === "merchants" && <MerchantsPage />}
+        {activePage === "products"  && <ProductsPage />}
+        {activePage === "invoices"  && <InvoicesPage />}
+        {activePage === "boxes"     && <BoxesPage />}
+        {activePage === "settings"  && <SettingsPage />}
       </main>
     </div>
   );

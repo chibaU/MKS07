@@ -1,100 +1,29 @@
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
-import type { SharedBox } from "../App";
 import type { Draft } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
-// 1. استيراد الخدمات الخاصة بقاعدة البيانات لجلب وحفظ الفواتير والتجار والمنتجات
-import { merchantService, productService, invoiceService, type Merchant, type Product } from "../services/db";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeDraft(id: string, sharedBoxes: SharedBox[]): Draft {
-  return {
-    id,
-    merchantName: "",
-    productInput: "",
-    weightInput: "",
-    priceInput: "",
-    boxes: sharedBoxes
-      .filter((b) => b.visible)
-      .map((b) => ({ id: b.id, name: b.name, emptyWeight: b.emptyWeight, grossInput: 0 })),
-    rows: [],
-  };
-}
+import { makeDraft } from "./InvoiceManager"; // استيراد دالة البناء النظيفة المحدثة من ملف App
+import { merchantService, productService, invoiceService, type Merchant, type Product, type Box } from "../services/db";
 
 const isDirty = (d: Draft) => d.merchantName.trim() !== "" || d.rows.length > 0;
-
 const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-// ─── ConfirmDialog ────────────────────────────────────────────────────────────
-
-function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 2000, direction: "rtl",
-      }}
-    >
-      <div
-        style={{
-          backgroundColor: "white", borderRadius: "14px", padding: "32px",
-          width: "380px", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-        }}
-      >
-        <div style={{ fontSize: "28px", marginBottom: "12px" }}>⚠️</div>
-        <div style={{ color: "#1E293B", fontSize: "17px", fontWeight: 700, marginBottom: "8px" }}>
-          تغييرات غير محفوظة
-        </div>
-        <div style={{ color: "#64748B", fontSize: "14px", lineHeight: 1.6, marginBottom: "28px" }}>
-          هناك تغييرات غير محفوظة، هل تريد الخروج؟
-        </div>
-        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-          <button
-            onClick={onCancel}
-            style={{
-              backgroundColor: "white", color: "#374151", border: "1px solid #E2E8F0",
-              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
-              fontFamily: "'Cairo', sans-serif", fontWeight: 500,
-            }}
-          >
-            إلغاء
-          </button>
-          <button
-            onClick={onConfirm}
-            style={{
-              backgroundColor: "#EF4444", color: "white", border: "none",
-              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
-              fontFamily: "'Cairo', sans-serif", fontWeight: 600,
-            }}
-          >
-            خروج بدون حفظ
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+interface HomePageProps {
+  realBoxes: Box[]; // الصناديق الآتية مباشرة من الـ SQLite
+  drafts: Draft[];
+  setDrafts: React.Dispatch<React.SetStateAction<Draft[]>>;
+  activeId: string;
+  setActiveId: (id: string) => void;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
-  const initialIdRef = useRef<string | null>(null);
-  if (!initialIdRef.current) initialIdRef.current = newId();
-
-  const [drafts, setDrafts] = useState<Draft[]>(() => [
-    makeDraft(initialIdRef.current!, sharedBoxes),
-  ]);
-  const [activeId, setActiveId] = useState<string>(initialIdRef.current);
+export function HomePage({ realBoxes, drafts, setDrafts, activeId, setActiveId }: HomePageProps) {
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   const [savedTabId, setSavedTabId] = useState<string | null>(null);
 
-  // 2. تعريف حالات (States) لتخزين قائمة التجار والمنتجات القادمة من قاعدة البيانات
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
-  // 3. جلب البيانات الفورية من الداتابيز بمجرد تحميل الصفحة
+  // جلب التجار والمنتجات للتلميحات التلقائية
   useEffect(() => {
     async function loadData() {
       try {
@@ -103,7 +32,7 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
         setMerchants(allMerchants);
         setProducts(allProducts);
       } catch (err) {
-        console.error("خطأ أثناء جلب بيانات التجار والمنتجات التلقائية:", err);
+        console.error("خطأ أثناء جلب بيانات التجار والمنتجات:", err);
       }
     }
     loadData();
@@ -111,14 +40,13 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
 
   const activeDraft = drafts.find((d) => d.id === activeId) ?? drafts[0];
 
-  // ── Draft Mutators ──────────────────────────────────────────────────────────
-
   const patchDraft = (id: string, patch: Partial<Draft>) =>
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
 
+  // كفاءة وسرعة عالية: عند الضغط على زر زائد، ننشئ الفاتورة من ذاكرة الكاش الممررة (realBoxes) دون استدعاء للداتابيز
   const addDraft = () => {
     const id = newId();
-    setDrafts((prev) => [...prev, makeDraft(id, sharedBoxes)]);
+    setDrafts((prev) => [...prev, makeDraft(id, realBoxes)]);
     setActiveId(id);
   };
 
@@ -135,7 +63,7 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
     setConfirmCloseId(null);
     const remaining = drafts.filter((d) => d.id !== id);
     if (remaining.length === 0) {
-      const newDraft = makeDraft(newId(), sharedBoxes);
+      const newDraft = makeDraft(newId(), realBoxes);
       setDrafts([newDraft]);
       setActiveId(newDraft.id);
     } else {
@@ -144,27 +72,22 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
     }
   };
 
-  // ── Save Action ─────────────────────────────────────────────────────────────
-
   const handleSave = async (andPrint = false) => {
-    if (activeDraft.rows.length === 0) return;
+    if (!activeDraft || activeDraft.rows.length === 0) return;
 
     try {
-      // أ) حساب المجموع الكلي للفاتورة الحالية
       const totalAmount = activeDraft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
 
-      // ب) تجهيز البيانات الفوقية للفاتورة
       const invoiceData = {
-        merchant_id: activeDraft.merchantId ?? null, // يحفظ كـ null إن كان التاجر مكتوباً يدوياً وغير محفوظ
-        invoice_type: "VEG_FRUIT", // نوع الفاتورة الافتراضي، يمكنك تعديله حسب الحاجة
-        invoice_date: new Date().toISOString().split("T")[0], // التاريخ الحالي بصيغة YYYY-MM-DD
+        merchant_id: activeDraft.merchantId ?? null,
+        invoice_type: "VEG_FRUIT",
+        invoice_date: new Date().toISOString().split("T")[0],
         total_amount: totalAmount,
       };
 
-      // ج) تحويل السطور والهياكل المتوافقة مع الإدخال الحر للـ تفاصيل
       const details = activeDraft.rows.map((row) => ({
-        product_id: row.productId, // رقم المعرف المحفوظ أو null في حال الكتابة اليدوية المباشرة
-        product_name: row.product, // نص اسم المنتج المباشر الذي سيسجل ثابتاً في تفاصيل الفاتورة
+        product_id: row.productId,
+        product_name: row.product,
         quantity: row.weight,
         price: row.price,
         subtotal: row.weight * row.price,
@@ -174,36 +97,39 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
         })),
       }));
 
-      // د) استدعاء الخدمة لإرسال البيانات وحفظها في المعاملة البرمجية لقاعدة البيانات
       await invoiceService.createInvoice(invoiceData, details);
 
-      // هـ) إظهار إشعار تم الحفظ بنجاح مؤقتاً
       setSavedTabId(activeId);
       setTimeout(() => setSavedTabId(null), 2000);
 
-      // و) تشغيل الطباعة عند الطلب
       if (andPrint) {
         setTimeout(() => {
           window.print();
         }, 100);
       }
 
-      // ز) تصفير بيانات التبويب الحالي لتهيئته للفاتورة القادمة
+      // تصفير بيانات التبويب الحالي باستخدام الصناديق الحقيقية المستقرة
       setDrafts((prev) =>
-        prev.map((d) => (d.id === activeId ? makeDraft(activeId, sharedBoxes) : d))
+        prev.map((d) => (d.id === activeId ? makeDraft(activeId, realBoxes) : d))
       );
 
     } catch (error) {
-      console.error("خطأ حدث أثناء حفظ الفاتورة في قاعدة البيانات:", error);
+      console.error("خطأ حدث أثناء حفظ الفاتورة:", error);
       alert("تعذر حفظ الفاتورة، يرجى مراجعة سجل الأخطاء.");
     }
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // حماية للتطبيق في حالة تأخر الـ تحميل الأولي للصناديق
+  if (!activeDraft) {
+    return (
+      <div style={{ padding: "40px", textAlign: "center", fontFamily: "'Cairo', sans-serif", color: "#64748B" }}>
+        جاري تحميل نظام الصناديق والبيانات...
+      </div>
+    );
+  }
 
   return (
     <div style={{ direction: "rtl", fontFamily: "'Cairo', sans-serif" }}>
-
       {/* ── TAB BAR ── */}
       <div
         style={{
@@ -267,7 +193,6 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
           );
         })}
 
-        {/* Add Tab */}
         <button
           onClick={addDraft}
           style={{
@@ -300,7 +225,6 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
         </button>
       </div>
 
-      {/* ── PAGE CONTENT ── */}
       <InvoiceForm
         draft={activeDraft}
         onChange={(patch) => patchDraft(activeId, patch)}
@@ -309,13 +233,62 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
         products={products}
       />
 
-      {/* ── CONFIRM CLOSE DIALOG ── */}
       {confirmCloseId && (
         <ConfirmDialog
           onConfirm={() => doClose(confirmCloseId)}
           onCancel={() => setConfirmCloseId(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ── ConfirmDialog ──
+function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 2000, direction: "rtl",
+      }}
+    >
+      <div
+        style={{
+          backgroundColor: "white", borderRadius: "14px", padding: "32px",
+          width: "380px", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+        }}
+      >
+        <div style={{ fontSize: "28px", marginBottom: "12px" }}>⚠️</div>
+        <div style={{ color: "#1E293B", fontSize: "17px", fontWeight: 700, marginBottom: "8px" }}>
+          تغييرات غير محفوظة
+        </div>
+        <div style={{ color: "#64748B", fontSize: "14px", lineHeight: 1.6, marginBottom: "28px" }}>
+          هناك تغييرات غير محفوظة، هل تريد الخروج؟
+        </div>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              backgroundColor: "white", color: "#374151", border: "1px solid #E2E8F0",
+              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
+              fontFamily: "'Cairo', sans-serif", fontWeight: 500,
+            }}
+          >
+            إلغاء
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              backgroundColor: "#EF4444", color: "white", border: "none",
+              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
+              fontFamily: "'Cairo', sans-serif", fontWeight: 600,
+            }}
+          >
+            خروج بدون حفظ
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
