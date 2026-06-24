@@ -23,8 +23,7 @@ export interface Draft {
   id: string;
   merchantName: string;
   merchantId?: number;
-  invoiceType: "DATES" | "VEG_FRUIT"; // we have only 2 types of invoices
-  productInput: string; // ← أضف هذا
+  productInput: string; 
   productId?: number;
   weightInput: string;
   priceInput: string;

@@ -12,7 +12,6 @@ function makeDraft(id: string, sharedBoxes: SharedBox[]): Draft {
   return {
     id,
     merchantName: "",
-    invoiceType: "DATES",
     productInput: "",
     weightInput: "",
     priceInput: "",
@@ -255,7 +254,6 @@ export function HomePage({ sharedBoxes }: { sharedBoxes: SharedBox[] }) {
       </div>
 
       {/* ── PAGE CONTENT ── */}
-      {/* 4. قمنا بتمرير المصفوفات الحقيقية هنا للتجار والمنتجات */}
       <InvoiceForm
         draft={activeDraft}
         onChange={(patch) => patchDraft(activeId, patch)}

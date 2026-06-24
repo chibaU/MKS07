@@ -61,7 +61,7 @@ interface AutocompleteProps {
   style?: React.CSSProperties;
 }
 
-const VISIBLE_LIMIT = 100; // Maximum number of suggestions to show
+const VISIBLE_LIMIT = 10; // Maximum number of suggestions to show
 
 function AutocompleteInner({
   value,
@@ -77,7 +77,6 @@ function AutocompleteInner({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHighlighted(-1);
   }, [suggestions]);
 
@@ -100,8 +99,8 @@ function AutocompleteInner({
       setOpen(false);
     } else if (!relatedTarget) {
       setTimeout(() => {
-      setOpen(false);
-    }, 150);
+        setOpen(false);
+      }, 150);
     }
   };
 
@@ -206,8 +205,8 @@ interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
   onSave: (andPrint?: boolean) => void;
-  merchants: Merchant[]; // ✅ تم الإصلاح: استقبال مصفوفة التجار القادمة من قاعدة البيانات
-  products: Product[]; // ✅ تم الإصلاح: استقبال مصفوفة المنتجات القادمة من قاعدة البيانات
+  merchants: Merchant[];
+  products: Product[];
 }
 
 const Autocomplete = memo(AutocompleteInner);
@@ -219,11 +218,10 @@ export function InvoiceForm({
   merchants,
   products,
 }: InvoiceFormProps) {
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving] = useState(false);
 
   // ── Merchant / Product suggestion lists ─────────────────────────────────────
 
-  // ✅ تم الإصلاح: تحويل المجموعات باستخدام useMemo لمنع استهلاك المعالج مع الرندرة المكررة للفواتير المفتوحة
   const merchantSuggestions = useMemo(() => {
     return merchants?.map((m) => ({ id: m.id, label: m.name })) || [];
   }, [merchants]);
@@ -252,7 +250,7 @@ export function InvoiceForm({
     if (!draft.productInput.trim() || !draft.weightInput) return;
 
     const row: DraftRow = {
-      id: Date.now()+ Math.random(),
+      id: Date.now() + Math.random(),
       product: draft.productInput,
       productId: draft.productId ?? null,
       weight: parseFloat(draft.weightInput) || 0,
@@ -327,37 +325,6 @@ export function InvoiceForm({
               ✓ تاجر محفوظ — سيتم ربط الفاتورة بحسابه
             </div>
           )}
-        </div>
-
-        {/* نوع الفاتورة في نفس التصميم الأصلي للأزرار الكبيرة */}
-        <div style={{ marginBottom: "18px" }}>
-          <label style={c.label}>نوع الفاتورة</label>
-          <div style={{ display: "flex", gap: "12px" }}>
-            {(["DATES", "VEG_FRUIT"] as const).map((type) => (
-              <button
-                key={type}
-                onClick={() => onChange({ invoiceType: type })}
-                style={{
-                  flex: 1,
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "2px solid",
-                  borderColor:
-                    draft.invoiceType === type ? "#2563EB" : "#E2E8F0",
-                  backgroundColor:
-                    draft.invoiceType === type ? "#EFF6FF" : "white",
-                  color: draft.invoiceType === type ? "#1D4ED8" : "#64748B",
-                  fontFamily: "'Cairo', sans-serif",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {type === "DATES" ? "🌴 فاتورة تمور" : "🍎 فاتورة خضر وفواكه"}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Row 2: Two-column layout */}
@@ -569,7 +536,6 @@ export function InvoiceForm({
                 step="0.01"
               />
             </div>
-            {/* ملخص الصندوق المرتبط بهذا المنتج */}
             {totalNetWeight > 0 && (
               <div
                 style={{
@@ -593,7 +559,7 @@ export function InvoiceForm({
       {/* ── INSERT BUTTON ── */}
       <button
         onClick={handleInsert}
-        disabled={!draft.productInput.trim() || !draft.weightInput} // ✅ تعطيل الزر برمجياً لمنع النقرات العشوائية
+        disabled={!draft.productInput.trim() || !draft.weightInput}
         style={{
           width: "100%",
           height: "58px",
@@ -652,23 +618,6 @@ export function InvoiceForm({
                 — {draft.merchantName}
               </span>
             )}
-            {/* ملصق نوع الفاتورة في جدول البنود */}
-            <span
-              style={{
-                marginRight: "8px",
-                fontSize: "12px",
-                backgroundColor:
-                  draft.invoiceType === "DATES" ? "#ECFDF5" : "#EFF6FF",
-                color: draft.invoiceType === "DATES" ? "#047857" : "#1D4ED8",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                border: "1px solid",
-                borderColor:
-                  draft.invoiceType === "DATES" ? "#A7F3D0" : "#BFDBFE",
-              }}
-            >
-              {draft.invoiceType === "DATES" ? "🌴 تمور" : "🍎 خضر وفواكه"}
-            </span>
           </span>
           <span style={{ color: "#94A3B8", fontSize: "13px" }}>
             {draft.rows.length} بند
@@ -817,17 +766,16 @@ export function InvoiceForm({
       <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
         <button
           onClick={() => onSave(true)}
-          disabled={isSaving || draft.rows.length === 0}
+          disabled={draft.rows.length === 0}
           style={{
             backgroundColor: "white",
-            color: isSaving || draft.rows.length === 0 ? "#94A3B8" : "#374151",
+            color: draft.rows.length === 0 ? "#94A3B8" : "#374151",
             border: "1px solid #CBD5E1",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor:
-              isSaving || draft.rows.length === 0 ? "not-allowed" : "pointer",
+            cursor: draft.rows.length === 0 ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -839,18 +787,16 @@ export function InvoiceForm({
         </button>
         <button
           onClick={() => onSave(false)}
-          disabled={isSaving || draft.rows.length === 0}
+          disabled={draft.rows.length === 0}
           style={{
-            backgroundColor:
-              isSaving || draft.rows.length === 0 ? "#93C5FD" : "#2563EB",
+            backgroundColor: draft.rows.length === 0 ? "#93C5FD" : "#2563EB",
             color: "white",
             border: "none",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor:
-              isSaving || draft.rows.length === 0 ? "not-allowed" : "pointer",
+            cursor: draft.rows.length === 0 ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -858,7 +804,7 @@ export function InvoiceForm({
           }}
         >
           <Save size={16} />
-          {isSaving ? "جاري الحفظ..." : "حفظ"}
+          حفظ
         </button>
       </div>
     </div>

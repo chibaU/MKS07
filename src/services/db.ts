@@ -32,7 +32,6 @@ export interface Box {
 export interface Invoice {
   id: number;
   merchant_id: NullableNumber;
-  invoice_type: string;
   invoice_date: NullableString;
   total_amount: number;
 }
@@ -54,7 +53,6 @@ export interface InvoiceDetailBox {
 
 export interface CreateInvoiceData {
   merchant_id: NullableNumber;
-  invoice_type: string;
   invoice_date: string;
   total_amount: number;
 }
@@ -272,10 +270,9 @@ export const invoiceService = {
 
     return await executeInTransaction(db, async () => {
       const invoiceResult = await db.execute(
-        'INSERT INTO invoices (merchant_id, invoice_type, invoice_date, total_amount) VALUES ($1, $2, $3, $4)',
+        'INSERT INTO invoices (merchant_id, invoice_date, total_amount) VALUES ($1, $2, $3)',
         [
           invoiceData.merchant_id,
-          invoiceData.invoice_type,
           invoiceData.invoice_date,
           invoiceData.total_amount
         ]
@@ -319,7 +316,6 @@ export const invoiceService = {
       `SELECT
         invoices.id,
         invoices.merchant_id,
-        invoices.invoice_type,
         invoices.invoice_date,
         invoices.total_amount,
         merchants.name AS merchant_name
@@ -337,7 +333,6 @@ export const invoiceService = {
       `SELECT
         invoices.id,
         invoices.merchant_id,
-        invoices.invoice_type,
         invoices.invoice_date,
         invoices.total_amount,
         merchants.name AS merchant_name
@@ -357,7 +352,6 @@ export const invoiceService = {
       `SELECT
         invoices.id,
         invoices.merchant_id,
-        invoices.invoice_type,
         invoices.invoice_date,
         invoices.total_amount,
         merchants.name AS merchant_name

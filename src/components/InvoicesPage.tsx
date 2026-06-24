@@ -66,8 +66,7 @@ export function InvoicesPage() {
     const term = search.toLowerCase();
     return (
       inv.id.toString().includes(term) ||
-      (inv.merchant_name && inv.merchant_name.toLowerCase().includes(term)) ||
-      inv.invoice_type.toLowerCase().includes(term)
+      (inv.merchant_name && inv.merchant_name.toLowerCase().includes(term))
     );
   });
 
@@ -119,7 +118,6 @@ export function InvoicesPage() {
             <tr>
               <th style={{ ...s.th, width: "100px" }}>رقم الفاتورة</th>
               <th style={s.th}>التاجر</th>
-              <th style={s.th}>نوع العملية</th>
               <th style={s.th}>التاريخ</th>
               <th style={s.th}>المبلغ الإجمالي</th>
               <th style={{ ...s.th, width: "120px", textAlign: "center" }}>الإجراءات</th>
@@ -128,13 +126,13 @@ export function InvoicesPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} style={{ ...s.td, textAlign: "center", color: "#64748B" }}>
+                <td colSpan={5} style={{ ...s.td, textAlign: "center", color: "#64748B" }}>
                   جاري تحميل الفواتير من قاعدة البيانات...
                 </td>
               </tr>
             ) : filteredInvoices.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...s.td, textAlign: "center", color: "#94A3B8" }}>
+                <td colSpan={5} style={{ ...s.td, textAlign: "center", color: "#94A3B8" }}>
                   لا توجد فواتير مسجلة مطابقة للبحث.
                 </td>
               </tr>
@@ -143,15 +141,6 @@ export function InvoicesPage() {
                 <tr key={inv.id}>
                   <td style={{ ...s.td, fontFamily: "monospace", fontWeight: 600 }}>#{inv.id}</td>
                   <td style={{ ...s.td, fontWeight: 600, color: "#1E293B" }}>{inv.merchant_name || "تاجر عام / نقدي"}</td>
-                  <td style={s.td}>
-                    <span style={{
-                      padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600,
-                      backgroundColor: inv.invoice_type === "SELL" ? "#DBEAFE" : "#FFE4E6",
-                      color: inv.invoice_type === "SELL" ? "#1E40AF" : "#9F1239"
-                    }}>
-                      {inv.invoice_type === "SELL" ? "بيع" : "شراء"}
-                    </span>
-                  </td>
                   <td style={s.td}>{inv.invoice_date || "—"}</td>
                   <td style={{ ...s.td, fontWeight: 700, color: "#16A34A" }}>{inv.total_amount.toLocaleString()} دج</td>
                   <td style={{ ...s.td, textAlign: "center" }}>
