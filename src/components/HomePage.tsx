@@ -1,100 +1,108 @@
-import { useState, useEffect } from "react";
+import { useState, useCallback, memo } from "react";
 import { Plus, X } from "lucide-react";
 import type { Draft } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
-import { makeDraft } from "./InvoiceManager"; // استيراد دالة البناء النظيفة المحدثة من ملف App
-import { merchantService, productService, invoiceService, type Merchant, type Product, type Box } from "../services/db";
+import { makeDraft } from "./InvoiceManager";
+import { invoiceService, type Merchant, type Product, type Box } from "../services/db";
 
 const isDirty = (d: Draft) => d.merchantName.trim() !== "" || d.rows.length > 0;
-const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+const newId   = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+// تقريب موحد للأرقام العشرية — إصلاح BUG-4
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 interface HomePageProps {
-  realBoxes: Box[]; // الصناديق الآتية مباشرة من الـ SQLite
-  drafts: Draft[];
-  setDrafts: React.Dispatch<React.SetStateAction<Draft[]>>;
-  activeId: string;
-  setActiveId: (id: string) => void;
+  realBoxes:  Box[];
+  drafts:     Draft[];
+  setDrafts:  React.Dispatch<React.SetStateAction<Draft[]>>;
+  activeId:   string;
+  setActiveId:(id: string) => void;
+  merchants:  Merchant[];
+  products:   Product[];
 }
 
-export function HomePage({ realBoxes, drafts, setDrafts, activeId, setActiveId }: HomePageProps) {
+const MemoInvoiceForm = memo(InvoiceForm);
+
+export function HomePage({
+  realBoxes,
+  drafts,
+  setDrafts,
+  activeId,
+  setActiveId,
+  merchants,
+  products,
+}: HomePageProps) {
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
-  const [savedTabId, setSavedTabId] = useState<string | null>(null);
-
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-
-  // جلب التجار والمنتجات للتلميحات التلقائية
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const allMerchants = await merchantService.getAll();
-        const allProducts = await productService.getAll();
-        setMerchants(allMerchants);
-        setProducts(allProducts);
-      } catch (err) {
-        console.error("خطأ أثناء جلب بيانات التجار والمنتجات:", err);
-      }
-    }
-    loadData();
-  }, []);
+  const [savedTabId,     setSavedTabId]     = useState<string | null>(null);
+  // إصلاح BUG-1: منع الحفظ المزدوج
+  const [isSaving,       setIsSaving]       = useState(false);
 
   const activeDraft = drafts.find((d) => d.id === activeId) ?? drafts[0];
 
-  const patchDraft = (id: string, patch: Partial<Draft>) =>
-    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  const patchDraft = useCallback((id: string, patch: Partial<Draft>) =>
+    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d))),
+  [setDrafts]);
 
-  // كفاءة وسرعة عالية: عند الضغط على زر زائد، ننشئ الفاتورة من ذاكرة الكاش الممررة (realBoxes) دون استدعاء للداتابيز
-  const addDraft = () => {
+  // إصلاح S-1: onChange ثابتة لا تكسر memo
+  const handleChange = useCallback((patch: Partial<Draft>) =>
+    patchDraft(activeId, patch),
+  [patchDraft, activeId]);
+
+  const addDraft = useCallback(() => {
     const id = newId();
     setDrafts((prev) => [...prev, makeDraft(id, realBoxes)]);
     setActiveId(id);
-  };
+  }, [realBoxes, setDrafts, setActiveId]);
 
-  const requestClose = (id: string) => {
+  // إصلاح BUG-3: doClose معرّفة أولاً ثم requestClose تستخدمها
+  const doClose = useCallback((id: string) => {
+    setConfirmCloseId(null);
+    setDrafts((prev) => {
+      const remaining = prev.filter((d) => d.id !== id);
+      if (remaining.length === 0) {
+        const newDraft = makeDraft(newId(), realBoxes);
+        setActiveId(newDraft.id);
+        return [newDraft];
+      }
+      if (activeId === id) setActiveId(remaining[remaining.length - 1].id);
+      return remaining;
+    });
+  }, [activeId, realBoxes, setDrafts, setActiveId]);
+
+  // إصلاح BUG-3: doClose في dependencies
+  const requestClose = useCallback((id: string) => {
     const draft = drafts.find((d) => d.id === id);
     if (draft && isDirty(draft)) {
       setConfirmCloseId(id);
     } else {
       doClose(id);
     }
-  };
+  }, [drafts, doClose]);
 
-  const doClose = (id: string) => {
-    setConfirmCloseId(null);
-    const remaining = drafts.filter((d) => d.id !== id);
-    if (remaining.length === 0) {
-      const newDraft = makeDraft(newId(), realBoxes);
-      setDrafts([newDraft]);
-      setActiveId(newDraft.id);
-    } else {
-      setDrafts(remaining);
-      if (activeId === id) setActiveId(remaining[remaining.length - 1].id);
-    }
-  };
-
-  const handleSave = async (andPrint = false) => {
-    if (!activeDraft || activeDraft.rows.length === 0) return;
+  const handleSave = useCallback(async (andPrint = false) => {
+    // إصلاح BUG-1: حماية من الحفظ المزدوج
+    if (isSaving || !activeDraft || activeDraft.rows.length === 0) return;
+    setIsSaving(true);
 
     try {
-      const totalAmount = activeDraft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
+      // إصلاح BUG-4: تقريب total_amount
+      const totalAmount = round2(
+        activeDraft.rows.reduce((sum, r) => sum + r.weight * r.price, 0)
+      );
 
       const invoiceData = {
-        merchant_id: activeDraft.merchantId ?? null,
-        invoice_type: "VEG_FRUIT",
+        merchant_id:  activeDraft.merchantId ?? null,
         invoice_date: new Date().toISOString().split("T")[0],
         total_amount: totalAmount,
       };
 
+      // إصلاح BUG-4: تقريب subtotal لكل سطر
       const details = activeDraft.rows.map((row) => ({
-        product_id: row.productId,
         product_name: row.product,
-        quantity: row.weight,
-        price: row.price,
-        subtotal: row.weight * row.price,
-        boxes: row.boxesSnapshot.map((b) => ({
-          box_id: b.id,
-          box_count: b.boxCount,
-        })),
+        quantity:     round2(row.weight),
+        price:        round2(row.price),
+        subtotal:     round2(row.weight * row.price),
+        boxes:        row.boxesSnapshot.map((b) => ({ box_id: b.id, box_count: b.boxCount })),
       }));
 
       await invoiceService.createInvoice(invoiceData, details);
@@ -102,28 +110,24 @@ export function HomePage({ realBoxes, drafts, setDrafts, activeId, setActiveId }
       setSavedTabId(activeId);
       setTimeout(() => setSavedTabId(null), 2000);
 
-      if (andPrint) {
-        setTimeout(() => {
-          window.print();
-        }, 100);
-      }
+      if (andPrint) setTimeout(() => window.print(), 100);
 
-      // تصفير بيانات التبويب الحالي باستخدام الصناديق الحقيقية المستقرة
       setDrafts((prev) =>
         prev.map((d) => (d.id === activeId ? makeDraft(activeId, realBoxes) : d))
       );
-
     } catch (error) {
-      console.error("خطأ حدث أثناء حفظ الفاتورة:", error);
+      console.error("خطأ أثناء حفظ الفاتورة:", error);
       alert("تعذر حفظ الفاتورة، يرجى مراجعة سجل الأخطاء.");
+    } finally {
+      // إصلاح BUG-1: إعادة تفعيل الزر بعد انتهاء العملية
+      setIsSaving(false);
     }
-  };
+  }, [isSaving, activeDraft, activeId, realBoxes, setDrafts]);
 
-  // حماية للتطبيق في حالة تأخر الـ تحميل الأولي للصناديق
   if (!activeDraft) {
     return (
       <div style={{ padding: "40px", textAlign: "center", fontFamily: "'Cairo', sans-serif", color: "#64748B" }}>
-        جاري تحميل نظام الصناديق والبيانات...
+        جاري تحميل البيانات...
       </div>
     );
   }
@@ -225,12 +229,14 @@ export function HomePage({ realBoxes, drafts, setDrafts, activeId, setActiveId }
         </button>
       </div>
 
-      <InvoiceForm
+      {/* إصلاح S-1: onChange ثابتة من handleChange بدل arrow inline */}
+      <MemoInvoiceForm
         draft={activeDraft}
-        onChange={(patch) => patchDraft(activeId, patch)}
+        onChange={handleChange}
         onSave={handleSave}
         merchants={merchants}
         products={products}
+        isSaving={isSaving}
       />
 
       {confirmCloseId && (
@@ -243,7 +249,6 @@ export function HomePage({ realBoxes, drafts, setDrafts, activeId, setActiveId }
   );
 }
 
-// ── ConfirmDialog ──
 function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
     <div

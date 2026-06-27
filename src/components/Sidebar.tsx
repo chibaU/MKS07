@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Home, Users, Package, FileText, Archive, Settings } from "lucide-react";
 
 type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
@@ -16,7 +17,7 @@ const navItems = [
   { id: "settings" as Page, label: "الإعدادات", icon: Settings },
 ];
 
-export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ activePage, onNavigate }: SidebarProps) {
   return (
     <aside
       style={{
@@ -124,4 +125,4 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
       </div>
     </aside>
   );
-}
+});

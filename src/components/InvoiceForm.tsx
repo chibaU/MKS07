@@ -1,91 +1,62 @@
-import { useState, useRef, useEffect, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useMemo, memo, useCallback } from "react";
 import { Trash2, Plus, Save, Printer } from "lucide-react";
 import type { Draft, DraftRow } from "./invoice";
 import { type Merchant, type Product } from "../services/db";
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
+// ─── Styles ثابتة خارج المكون
 const c = {
   input: {
-    padding: "10px 14px",
-    borderRadius: "8px",
-    border: "1px solid #E2E8F0",
-    backgroundColor: "#F8FAFC",
-    color: "#1E293B",
-    fontSize: "14px",
-    outline: "none",
-    fontFamily: "'Cairo', sans-serif",
-    width: "100%",
-    boxSizing: "border-box" as const,
+    padding: "10px 14px", borderRadius: "8px", border: "1px solid #E2E8F0",
+    backgroundColor: "#F8FAFC", color: "#1E293B", fontSize: "14px", outline: "none",
+    fontFamily: "'Cairo', sans-serif", width: "100%", boxSizing: "border-box" as const,
   },
-  label: {
-    color: "#374151",
-    fontSize: "13px",
-    fontWeight: 600,
-    display: "block",
-    marginBottom: "6px",
-  },
+  label: { color: "#374151", fontSize: "13px", fontWeight: 600, display: "block", marginBottom: "6px" },
   card: {
-    backgroundColor: "white",
-    borderRadius: "12px",
-    border: "1px solid #E2E8F0",
-    padding: "20px 24px",
-    marginBottom: "16px",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+    backgroundColor: "white", borderRadius: "12px", border: "1px solid #E2E8F0",
+    padding: "20px 24px", marginBottom: "16px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
   },
   th: {
-    backgroundColor: "#F8FAFC",
-    color: "#64748B",
-    padding: "11px 14px",
-    textAlign: "right" as const,
-    fontSize: "13px",
-    fontWeight: 600,
-    borderBottom: "1px solid #E2E8F0",
+    backgroundColor: "#F8FAFC", color: "#64748B", padding: "11px 14px",
+    textAlign: "right" as const, fontSize: "13px", fontWeight: 600, borderBottom: "1px solid #E2E8F0",
   },
-  td: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #F1F5F9",
-    color: "#1E293B",
-    fontSize: "14px",
-  },
-};
+  td: { padding: "12px 14px", borderBottom: "1px solid #F1F5F9", color: "#1E293B", fontSize: "14px" },
+} as const;
 
-// ─── Autocomplete Component ───────────────────────────────────────────────────
+// ─── نوع الـ suggestion يحمل labelLower مُحسوباً مسبقاً — إصلاح BUG-2
+interface Suggestion {
+  id: number;
+  label: string;
+  labelLower: string;
+}
 
 interface AutocompleteProps {
   value: string;
   onChange: (val: string) => void;
   onSelect: (val: string, id?: number) => void;
-  suggestions: { id: number; label: string }[];
+  suggestions: Suggestion[];
   placeholder?: string;
   style?: React.CSSProperties;
 }
 
 const VISIBLE_LIMIT = 10;
 
-function AutocompleteInner({
-  value,
-  onChange,
-  onSelect,
-  suggestions,
-  placeholder,
-  style,
-}: AutocompleteProps) {
-  const [open, setOpen] = useState(false);
+function AutocompleteInner({ value, onChange, onSelect, suggestions, placeholder, style }: AutocompleteProps) {
+  const [open,        setOpen]        = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setHighlighted(-1);
-  }, [suggestions]);
+  // إصلاح S-3: reset فقط عند تغيير suggestions.length لا reference
+  const suggestionsLen = suggestions.length;
+  useEffect(() => { setHighlighted(-1); }, [suggestionsLen]);
 
+  // إصلاح BUG-2: نستخدم labelLower المُحسوب مسبقاً — لا toLowerCase() هنا
   const filtered = useMemo(() => {
     if (!value.trim()) return suggestions.slice(0, VISIBLE_LIMIT);
     const q = value.toLowerCase();
-    const results: typeof suggestions = [];
+    const results: Suggestion[] = [];
     for (const s of suggestions) {
-      if (s.label.toLowerCase().includes(q)) {
+      if (s.labelLower.includes(q)) {
         results.push(s);
         if (results.length >= VISIBLE_LIMIT) break;
       }
@@ -94,22 +65,18 @@ function AutocompleteInner({
   }, [value, suggestions]);
 
   const handleBlur = (e: React.FocusEvent) => {
-    const relatedTarget = e.relatedTarget as Node | null;
-    if (relatedTarget && !wrapRef.current?.contains(relatedTarget)) {
+    const rel = e.relatedTarget as Node | null;
+    if (rel && !wrapRef.current?.contains(rel)) {
       setOpen(false);
-    } else if (!relatedTarget) {
-      setTimeout(() => {
-        setOpen(false);
-      }, 150);
+    } else if (!rel) {
+      setTimeout(() => setOpen(false), 150);
     }
   };
 
   useEffect(() => {
     if (highlighted >= 0 && highlighted < filtered.length && listRef.current) {
-      const activeEl = listRef.current.children[highlighted] as HTMLElement;
-      if (activeEl) {
-        activeEl.scrollIntoView({ block: "nearest" });
-      }
+      const el = listRef.current.children[highlighted] as HTMLElement;
+      el?.scrollIntoView({ block: "nearest" });
     }
   }, [filtered.length, highlighted]);
 
@@ -134,20 +101,12 @@ function AutocompleteInner({
   };
 
   return (
-    <div
-      ref={wrapRef}
-      onBlur={handleBlur}
-      style={{ position: "relative", width: "100%" }}
-    >
+    <div ref={wrapRef} onBlur={handleBlur} style={{ position: "relative", width: "100%" }}>
       <input
         style={{ ...c.input, ...style }}
         value={value}
         placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-          setHighlighted(-1);
-        }}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setHighlighted(-1); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
         autoComplete="off"
@@ -156,38 +115,22 @@ function AutocompleteInner({
         <div
           ref={listRef}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            right: 0,
-            left: 0,
-            zIndex: 500,
-            backgroundColor: "white",
-            border: "1px solid #E2E8F0",
-            borderRadius: "8px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
-            maxHeight: "220px",
-            overflowY: "auto",
+            position: "absolute", top: "calc(100% + 4px)", right: 0, left: 0,
+            zIndex: 500, backgroundColor: "white", border: "1px solid #E2E8F0",
+            borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+            maxHeight: "220px", overflowY: "auto",
           }}
         >
           {filtered.map((item, idx) => (
             <div
               key={item.id}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect(item.label, item.id);
-                setOpen(false);
-                setHighlighted(-1);
-              }}
+              onMouseDown={(e) => { e.preventDefault(); onSelect(item.label, item.id); setOpen(false); setHighlighted(-1); }}
               onMouseEnter={() => setHighlighted(idx)}
               style={{
-                padding: "10px 14px",
-                cursor: "pointer",
-                fontSize: "14px",
-                color: "#1E293B",
-                fontFamily: "'Cairo', sans-serif",
+                padding: "10px 14px", cursor: "pointer", fontSize: "14px",
+                color: "#1E293B", fontFamily: "'Cairo', sans-serif",
                 backgroundColor: idx === highlighted ? "#EFF6FF" : "white",
-                borderBottom:
-                  idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
+                borderBottom: idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
               }}
             >
               {item.label}
@@ -199,214 +142,147 @@ function AutocompleteInner({
   );
 }
 
-// ─── Main Component Props ─────────────────────────────────────────────────────
-
-interface InvoiceFormProps {
-  draft: Draft;
-  onChange: (patch: Partial<Draft>) => void;
-  onSave: (andPrint?: boolean) => void;
-  merchants: Merchant[];
-  products: Product[];
-}
-
 const Autocomplete = memo(AutocompleteInner);
 
-export function InvoiceForm({
-  draft,
-  onChange,
-  onSave,
-  merchants,
-  products,
-}: InvoiceFormProps) {
+// ─── InvoiceForm ──────────────────────────────────────────────────────────────
 
-  // ── Merchant / Product suggestion lists ─────────────────────────────────────
+interface InvoiceFormProps {
+  draft:     Draft;
+  onChange:  (patch: Partial<Draft>) => void;
+  onSave:    (andPrint?: boolean) => void;
+  merchants: Merchant[];
+  products:  Product[];
+  isSaving:  boolean; // إصلاح BUG-1: يُعطَّل الزر أثناء الحفظ
+}
 
-  const merchantSuggestions = useMemo(() => {
-    return merchants?.map((m) => ({ id: m.id, label: m.name })) || [];
-  }, [merchants]);
+export function InvoiceForm({ draft, onChange, onSave, merchants, products, isSaving }: InvoiceFormProps) {
 
-  const productSuggestions = useMemo(() => {
-    return products?.map((p) => ({ id: p.id, label: p.name })) || [];
-  }, [products]);
-
-  // ── Box inputs ──────────────────────────────────────────────────────────────
-
-  const updateBox = (boxId: number, val: string) =>
-    onChange({
-      boxes: draft.boxes.map((b) =>
-        b.id === boxId ? { ...b, grossInput: parseFloat(val) || 0 } : b,
-      ),
-    });
-
-  const totalNetWeight = draft.boxes.reduce(
-    (sum, b) => sum + Math.max(0, b.grossInput - b.emptyWeight),
-    0,
+  // إصلاح BUG-2: labelLower يُحسب مرة واحدة فقط عند تغيّر القائمة
+  const merchantSuggestions = useMemo<Suggestion[]>(
+    () => merchants.map((m) => ({ id: m.id, label: m.name, labelLower: m.name.toLowerCase() })),
+    [merchants]
   );
 
-  // ── Row insert ──────────────────────────────────────────────────────────────
+  const productSuggestions = useMemo<Suggestion[]>(
+    () => products.map((p) => ({ id: p.id, label: p.name, labelLower: p.name.toLowerCase() })),
+    [products]
+  );
 
-  const handleInsert = () => {
+  // إصلاح BUG-2: Map للصناديق — O(1)
+  const boxMap = useMemo(
+    () => new Map(draft.boxes.map((b) => [b.id, b])),
+    [draft.boxes]
+  );
+
+  const updateBox = useCallback((boxId: number, val: string) =>
+    onChange({
+      boxes: draft.boxes.map((b) =>
+        b.id === boxId ? { ...b, grossInput: parseFloat(val) || 0 } : b
+      ),
+    }),
+  [draft.boxes, onChange]);
+
+  const totalNetWeight = useMemo(
+    () => draft.boxes.reduce((sum, b) => sum + Math.max(0, b.grossInput - b.emptyWeight), 0),
+    [draft.boxes]
+  );
+
+  const handleInsert = useCallback(() => {
     if (!draft.productInput.trim() || !draft.weightInput) return;
 
     const row: DraftRow = {
-      id: Date.now() + Math.random(),
-      product: draft.productInput,
-      productId: draft.productId ?? null, // حقل الـ ID اختياري ويحفظ كـ null إن كتب مباشرة
-      weight: parseFloat(draft.weightInput) || 0,
-      price: parseFloat(draft.priceInput) || 0,
+      id:            Date.now() + Math.random(),
+      product:       draft.productInput,
+      productId:     draft.productId ?? null,
+      weight:        parseFloat(draft.weightInput) || 0,
+      price:         parseFloat(draft.priceInput)  || 0,
       boxesSnapshot: draft.boxes
         .filter((b) => b.grossInput > 0)
-        .map((b) => ({
-          id: b.id,
-          boxCount: b.grossInput,
-        })),
+        .map((b) => ({ id: b.id, boxCount: b.grossInput })),
     };
 
     onChange({
-      rows: [...draft.rows, row],
+      rows:         [...draft.rows, row],
       productInput: "",
-      productId: undefined,
-      weightInput: "",
-      priceInput: "",
-      boxes: draft.boxes.map((b) => ({ ...b, grossInput: 0 })),
+      productId:    undefined,
+      weightInput:  "",
+      priceInput:   "",
+      boxes:        draft.boxes.map((b) => ({ ...b, grossInput: 0 })),
     });
-  };
+  }, [draft, onChange]);
 
-  const deleteRow = (rowId: number) =>
-    onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
+  const deleteRow = useCallback((rowId: number) =>
+    onChange({ rows: draft.rows.filter((r) => r.id !== rowId) }),
+  [draft.rows, onChange]);
 
-  const grandTotal = draft.rows.reduce((sum, r) => sum + r.weight * r.price, 0);
+  const grandTotal = useMemo(
+    () => draft.rows.reduce((sum, r) => sum + r.weight * r.price, 0),
+    [draft.rows]
+  );
 
-  const canInsert = Boolean(draft.productInput && draft.weightInput);
+  const canInsert  = Boolean(draft.productInput.trim() && draft.weightInput);
+  const canSave    = draft.rows.length > 0 && !isSaving;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // إصلاح W1: callbacks ثابتة للـ Autocomplete — لا arrows inline تكسر memo
+  const handleMerchantChange = useCallback((val: string) =>
+    onChange({ merchantName: val, merchantId: undefined }),
+  [onChange]);
+
+  const handleMerchantSelect = useCallback((label: string, id?: number) =>
+    onChange({ merchantName: label, merchantId: id }),
+  [onChange]);
+
+  const handleProductChange = useCallback((val: string) =>
+    onChange({ productInput: val, productId: undefined }),
+  [onChange]);
+
+  const handleProductSelect = useCallback((label: string, id?: number) =>
+    onChange({ productInput: label, productId: id }),
+  [onChange]);
 
   return (
     <div style={{ padding: "28px 32px" }}>
-      {/* ── INVOICE FORM CARD ── */}
       <div style={c.card}>
-        <div
-          style={{
-            color: "#1E293B",
-            fontSize: "16px",
-            fontWeight: 600,
-            marginBottom: "18px",
-          }}
-        >
+        <div style={{ color: "#1E293B", fontSize: "16px", fontWeight: 600, marginBottom: "18px" }}>
           إنشاء فاتورة جديدة
         </div>
 
-        {/* Row 1: Merchant Name with Autocomplete */}
+        {/* التاجر */}
         <div style={{ marginBottom: "18px" }}>
           <label style={c.label}>اسم التاجر</label>
           <Autocomplete
             value={draft.merchantName}
-            onChange={(val) =>
-              onChange({ merchantName: val, merchantId: undefined })
-            }
-            onSelect={(label, id) =>
-              onChange({ merchantName: label, merchantId: id })
-            }
+            onChange={handleMerchantChange}
+            onSelect={handleMerchantSelect}
             suggestions={merchantSuggestions}
             placeholder="أدخل اسم التاجر أو ابحث عن موجود..."
           />
           {draft.merchantId && (
-            <div
-              style={{
-                marginTop: "5px",
-                fontSize: "12px",
-                color: "#10B981",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
+            <div style={{ marginTop: "5px", fontSize: "12px", color: "#10B981", display: "flex", alignItems: "center", gap: "4px" }}>
               ✓ تاجر محفوظ — سيتم ربط الفاتورة بحسابه
             </div>
           )}
         </div>
 
-        {/* Row 2: Two-column layout */}
+        {/* الصناديق + المنتج */}
         <div style={{ display: "flex", gap: "20px" }}>
-          {/* RIGHT column: Boxes */}
-          <div
-            style={{
-              width: "270px",
-              flexShrink: 0,
-              backgroundColor: "#F8FAFC",
-              borderRadius: "10px",
-              border: "1px solid #E2E8F0",
-              padding: "14px",
-            }}
-          >
-            <div
-              style={{
-                color: "#374151",
-                fontSize: "13px",
-                fontWeight: 600,
-                marginBottom: "10px",
-              }}
-            >
-              الصناديق النشطة
-            </div>
-
-            <div
-              style={{
-                maxHeight: "220px",
-                overflowY: "auto",
-                borderRadius: "8px",
-                border: "1px solid #E2E8F0",
-                backgroundColor: "white",
-              }}
-            >
+          {/* عمود الصناديق */}
+          <div style={{ width: "270px", flexShrink: 0, backgroundColor: "#F8FAFC", borderRadius: "10px", border: "1px solid #E2E8F0", padding: "14px" }}>
+            <div style={{ color: "#374151", fontSize: "13px", fontWeight: 600, marginBottom: "10px" }}>الصناديق النشطة</div>
+            <div style={{ maxHeight: "220px", overflowY: "auto", borderRadius: "8px", border: "1px solid #E2E8F0", backgroundColor: "white" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th
-                      style={{
-                        ...c.th,
-                        padding: "8px 12px",
-                        fontSize: "12px",
-                        position: "sticky",
-                        top: 0,
-                      }}
-                    >
-                      الصندوق
-                    </th>
-                    <th
-                      style={{
-                        ...c.th,
-                        padding: "8px 12px",
-                        fontSize: "12px",
-                        position: "sticky",
-                        top: 0,
-                      }}
-                    >
-                      الوزن (كغ)
-                    </th>
+                    <th style={{ ...c.th, padding: "8px 12px", fontSize: "12px", position: "sticky", top: 0 }}>الصندوق</th>
+                    <th style={{ ...c.th, padding: "8px 12px", fontSize: "12px", position: "sticky", top: 0 }}>الوزن (كغ)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {draft.boxes.map((box) => (
                     <tr key={box.id}>
-                      <td
-                        style={{
-                          ...c.td,
-                          padding: "8px 12px",
-                          fontSize: "13px",
-                          fontWeight: 500,
-                        }}
-                      >
+                      <td style={{ ...c.td, padding: "8px 12px", fontSize: "13px", fontWeight: 500 }}>
                         {box.name}
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            color: "#94A3B8",
-                            fontWeight: 400,
-                          }}
-                        >
-                          فارغ: {box.emptyWeight} كغ
-                        </div>
+                        <div style={{ fontSize: "11px", color: "#94A3B8", fontWeight: 400 }}>فارغ: {box.emptyWeight} كغ</div>
                       </td>
                       <td style={{ ...c.td, padding: "6px 12px" }}>
                         <input
@@ -417,15 +293,9 @@ export function InvoiceForm({
                           min="0"
                           step="0.1"
                           style={{
-                            padding: "5px 8px",
-                            borderRadius: "6px",
-                            border: "1px solid #CBD5E1",
-                            backgroundColor: "#F8FAFC",
-                            fontSize: "13px",
-                            width: "75px",
-                            textAlign: "center",
-                            fontFamily: "'Cairo', sans-serif",
-                            outline: "none",
+                            padding: "5px 8px", borderRadius: "6px", border: "1px solid #CBD5E1",
+                            backgroundColor: "#F8FAFC", fontSize: "13px", width: "75px",
+                            textAlign: "center", fontFamily: "'Cairo', sans-serif", outline: "none",
                           }}
                         />
                       </td>
@@ -434,147 +304,63 @@ export function InvoiceForm({
                 </tbody>
               </table>
               {draft.boxes.length === 0 && (
-                <div
-                  style={{
-                    padding: "16px",
-                    textAlign: "center",
-                    color: "#94A3B8",
-                    fontSize: "12px",
-                  }}
-                >
+                <div style={{ padding: "16px", textAlign: "center", color: "#94A3B8", fontSize: "12px" }}>
                   لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
                 </div>
               )}
             </div>
-
-            {/* Net weight total */}
-            <div
-              style={{
-                marginTop: "10px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 12px",
-                backgroundColor: "#EFF6FF",
-                borderRadius: "8px",
-                border: "1px solid #DBEAFE",
-              }}
-            >
-              <span
-                style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}
-              >
-                الوزن الصافي
-              </span>
-              <span
-                style={{
-                  color: "#1D4ED8",
-                  fontSize: "14px",
-                  fontWeight: 700,
-                }}
-              >
-                {totalNetWeight.toFixed(2)} كغ
-              </span>
+            <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", backgroundColor: "#EFF6FF", borderRadius: "8px", border: "1px solid #DBEAFE" }}>
+              <span style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}>الوزن الصافي</span>
+              <span style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}>{totalNetWeight.toFixed(2)} كغ</span>
             </div>
           </div>
 
-          {/* LEFT column: Product fields with Autocomplete suggestions */}
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              gap: "14px",
-            }}
-          >
+          {/* عمود المنتج */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
               <label style={c.label}>اسم المنتج</label>
               <Autocomplete
                 value={draft.productInput}
-                onChange={(val) =>
-                  onChange({ productInput: val, productId: null }) // عند الكتابة اليدوية، يتم تصفير الـ id مع الحفاظ على النص المكتوب
-                }
-                onSelect={(label, id) =>
-                  onChange({ productInput: label, productId: id }) // عند الاختيار من التلميحات يربط بالـ id للـ reference التلقائي
-                }
+                onChange={handleProductChange}
+                onSelect={handleProductSelect}
                 suggestions={productSuggestions}
                 placeholder="أدخل اسم المنتج مباشرة أو اختر المقترح..."
               />
               {draft.productId && (
-                <div
-                  style={{
-                    marginTop: "4px",
-                    fontSize: "12px",
-                    color: "#10B981",
-                  }}
-                >
-                  ✓ منتج محفوظ
-                </div>
+                <div style={{ marginTop: "4px", fontSize: "12px", color: "#10B981" }}>✓ منتج محفوظ</div>
               )}
             </div>
             <div>
               <label style={c.label}>الوزن (كغ)</label>
-              <input
-                type="number"
-                style={c.input}
-                placeholder="0.0"
-                value={draft.weightInput}
-                onChange={(e) => onChange({ weightInput: e.target.value })}
-                min="0"
-                step="0.1"
-              />
+              <input type="number" style={c.input} placeholder="0.0" value={draft.weightInput}
+                onChange={(e) => onChange({ weightInput: e.target.value })} min="0" step="0.1" />
             </div>
             <div>
               <label style={c.label}>سعر المنتج (دج/كغ)</label>
-              <input
-                type="number"
-                style={c.input}
-                placeholder="0.00"
-                value={draft.priceInput}
-                onChange={(e) => onChange({ priceInput: e.target.value })}
-                min="0"
-                step="0.01"
-              />
+              <input type="number" style={c.input} placeholder="0.00" value={draft.priceInput}
+                onChange={(e) => onChange({ priceInput: e.target.value })} min="0" step="0.01" />
             </div>
             {totalNetWeight > 0 && (
-              <div
-                style={{
-                  padding: "10px 14px",
-                  backgroundColor: "#F0FDF4",
-                  border: "1px solid #BBF7D0",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  color: "#166534",
-                }}
-              >
-                الوزن الصافي من الصناديق:{" "}
-                <strong>{totalNetWeight.toFixed(2)} كغ</strong> — سيُسجَّل مع
-                هذا السطر
+              <div style={{ padding: "10px 14px", backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: "8px", fontSize: "13px", color: "#166534" }}>
+                الوزن الصافي من الصناديق: <strong>{totalNetWeight.toFixed(2)} كغ</strong> — سيُسجَّل مع هذا السطر
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── INSERT BUTTON ── */}
+      {/* زر الإدراج */}
       <button
         onClick={handleInsert}
-        disabled={!draft.productInput.trim() || !draft.weightInput}
+        disabled={!canInsert}
         style={{
-          width: "100%",
-          height: "58px",
+          width: "100%", height: "58px",
           backgroundColor: canInsert ? "#2563EB" : "#93C5FD",
-          color: "white",
-          border: "none",
-          borderRadius: "10px",
-          fontSize: "17px",
-          fontWeight: 700,
+          color: "white", border: "none", borderRadius: "10px",
+          fontSize: "17px", fontWeight: 700,
           cursor: canInsert ? "pointer" : "not-allowed",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "10px",
-          fontFamily: "'Cairo', sans-serif",
-          marginBottom: "16px",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
+          fontFamily: "'Cairo', sans-serif", marginBottom: "16px",
           boxShadow: canInsert ? "0 4px 14px rgba(37,99,235,0.35)" : "none",
           transition: "all 0.15s",
         }}
@@ -583,95 +369,40 @@ export function InvoiceForm({
         إدراج السطر
       </button>
 
-      {/* ── INVOICE TABLE ── */}
-      <div
-        style={{
-          backgroundColor: "white",
-          borderRadius: "12px",
-          border: "1px solid #E2E8F0",
-          overflow: "hidden",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-          marginBottom: "20px",
-        }}
-      >
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid #E2E8F0",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+      {/* جدول الفاتورة */}
+      <div style={{ backgroundColor: "white", borderRadius: "12px", border: "1px solid #E2E8F0", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: "#1E293B", fontSize: "15px", fontWeight: 600 }}>
             بنود الفاتورة
             {draft.merchantName && (
-              <span
-                style={{
-                  color: "#2563EB",
-                  marginRight: "8px",
-                  fontSize: "14px",
-                  fontWeight: 500,
-                }}
-              >
-                — {draft.merchantName}
-              </span>
+              <span style={{ color: "#2563EB", marginRight: "8px", fontSize: "14px", fontWeight: 500 }}>— {draft.merchantName}</span>
             )}
           </span>
-          <span style={{ color: "#94A3B8", fontSize: "13px" }}>
-            {draft.rows.length} بند
-          </span>
+          <span style={{ color: "#94A3B8", fontSize: "13px" }}>{draft.rows.length} بند</span>
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {[
-                "#",
-                "اسم المنتج",
-                "الوزن (كغ)",
-                "سعر المنتج",
-                "صناديق",
-                "الإجمالي",
-                "الإجراءات",
-              ].map((h) => (
-                <th key={h} style={c.th}>
-                  {h}
-                </th>
+              {["#", "اسم المنتج", "الوزن (كغ)", "سعر المنتج", "صناديق", "الإجمالي", "الإجراءات"].map((h) => (
+                <th key={h} style={c.th}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {draft.rows.map((row, i) => (
-              <tr
-                key={row.id}
-                style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}
-              >
-                <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>
-                  {i + 1}
-                </td>
+              <tr key={row.id} style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}>
+                <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>{i + 1}</td>
                 <td style={{ ...c.td, fontWeight: 500 }}>{row.product}</td>
                 <td style={c.td}>{row.weight.toFixed(1)}</td>
-                <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>
-                  {row.price.toFixed(2)} دج
-                </td>
+                <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>{row.price.toFixed(2)} دج</td>
                 <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
                   {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
-                    <div
-                      style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
-                    >
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                       {row.boxesSnapshot.map((bs, idx) => {
-                        const boxDef = draft.boxes.find((b) => b.id === bs.id);
+                        const boxDef = boxMap.get(bs.id);
                         return (
-                          <span
-                            key={idx}
-                            style={{
-                              backgroundColor: "#F1F5F9",
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              fontSize: "11px",
-                            }}
-                          >
+                          <span key={idx} style={{ backgroundColor: "#F1F5F9", padding: "2px 6px", borderRadius: "4px", fontSize: "11px" }}>
                             {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
                           </span>
                         );
@@ -682,29 +413,12 @@ export function InvoiceForm({
                   )}
                 </td>
                 <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
-                  {(row.weight * row.price).toLocaleString("ar-DZ", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  دج
+                  {(row.weight * row.price).toLocaleString("ar-DZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} دج
                 </td>
                 <td style={c.td}>
                   <button
                     onClick={() => deleteRow(row.id)}
-                    style={{
-                      border: "none",
-                      borderRadius: "6px",
-                      padding: "6px 12px",
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px",
-                      fontSize: "12px",
-                      fontFamily: "'Cairo', sans-serif",
-                      fontWeight: 500,
-                      backgroundColor: "#FEF2F2",
-                      color: "#EF4444",
-                    }}
+                    style={{ border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontFamily: "'Cairo', sans-serif", fontWeight: 500, backgroundColor: "#FEF2F2", color: "#EF4444" }}
                   >
                     <Trash2 size={13} />
                     حذف
@@ -713,34 +427,11 @@ export function InvoiceForm({
               </tr>
             ))}
 
-            {/* Grand Total Row */}
             {draft.rows.length > 0 && (
-              <tr
-                style={{
-                  backgroundColor: "#EFF6FF",
-                  borderTop: "2px solid #BFDBFE",
-                }}
-              >
-                <td
-                  style={{ ...c.td, fontWeight: 700, color: "#1E40AF" }}
-                  colSpan={5}
-                >
-                  الإجمالي الكلي
-                </td>
-                <td
-                  style={{
-                    ...c.td,
-                    fontWeight: 800,
-                    color: "#1E40AF",
-                    fontSize: "15px",
-                  }}
-                  colSpan={2}
-                >
-                  {grandTotal.toLocaleString("ar-DZ", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  دج
+              <tr style={{ backgroundColor: "#EFF6FF", borderTop: "2px solid #BFDBFE" }}>
+                <td style={{ ...c.td, fontWeight: 700, color: "#1E40AF" }} colSpan={5}>الإجمالي الكلي</td>
+                <td style={{ ...c.td, fontWeight: 800, color: "#1E40AF", fontSize: "15px" }} colSpan={2}>
+                  {grandTotal.toLocaleString("ar-DZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} دج
                 </td>
               </tr>
             )}
@@ -748,62 +439,44 @@ export function InvoiceForm({
         </table>
 
         {draft.rows.length === 0 && (
-          <div
-            style={{
-              padding: "40px",
-              textAlign: "center",
-              color: "#94A3B8",
-              fontSize: "14px",
-            }}
-          >
+          <div style={{ padding: "40px", textAlign: "center", color: "#94A3B8", fontSize: "14px" }}>
             لا توجد بنود — أضف منتجاً باستخدام النموذج أعلاه
           </div>
         )}
       </div>
 
-      {/* ── SAVE BUTTONS ── */}
+      {/* أزرار الحفظ — إصلاح BUG-1: معطَّلة أثناء isSaving */}
       <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
         <button
           onClick={() => onSave(true)}
-          disabled={draft.rows.length === 0}
+          disabled={!canSave}
           style={{
             backgroundColor: "white",
-            color: draft.rows.length === 0 ? "#94A3B8" : "#374151",
-            border: "1px solid #CBD5E1",
-            borderRadius: "8px",
-            padding: "12px 28px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: draft.rows.length === 0 ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
+            color: !canSave ? "#94A3B8" : "#374151",
+            border: "1px solid #CBD5E1", borderRadius: "8px", padding: "12px 28px",
+            fontSize: "14px", fontWeight: 600,
+            cursor: !canSave ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", gap: "8px",
             fontFamily: "'Cairo', sans-serif",
           }}
         >
           <Printer size={16} />
-          حفظ وطباعة
+          {isSaving ? "جاري الحفظ..." : "حفظ وطباعة"}
         </button>
         <button
           onClick={() => onSave(false)}
-          disabled={draft.rows.length === 0}
+          disabled={!canSave}
           style={{
-            backgroundColor: draft.rows.length === 0 ? "#93C5FD" : "#2563EB",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            padding: "12px 28px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: draft.rows.length === 0 ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
+            backgroundColor: !canSave ? "#93C5FD" : "#2563EB",
+            color: "white", border: "none", borderRadius: "8px", padding: "12px 28px",
+            fontSize: "14px", fontWeight: 600,
+            cursor: !canSave ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", gap: "8px",
             fontFamily: "'Cairo', sans-serif",
           }}
         >
           <Save size={16} />
-          حفظ
+          {isSaving ? "جاري الحفظ..." : "حفظ"}
         </button>
       </div>
     </div>

@@ -17,7 +17,7 @@ const s = {
   th: { backgroundColor: "#F8FAFC", color: "#64748B", fontWeight: 650, fontSize: "13px", padding: "14px 20px", borderBottom: "1px solid #E2E8F0" },
   td: { padding: "14px 20px", borderBottom: "1px solid #E2E8F0", color: "#334155", fontSize: "14px" },
   actionBtn: { border: "none", background: "none", cursor: "pointer", padding: "4px", borderRadius: "4px", display: "inline-flex", alignItems: "center", justifyContent: "center" },
-  overlay: { position: "fixed" as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.3)", display: "flex", alignItems: "center", justifyBox: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" },
+  overlay: { position: "fixed" as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(2px)" },
   modal: { backgroundColor: "white", borderRadius: "16px", width: "440px", padding: "28px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)", border: "1px solid #E2E8F0", direction: "rtl" as const },
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" },
   modalTitle: { color: "#1E293B", fontSize: "18px", fontWeight: 700 },
@@ -28,22 +28,22 @@ const s = {
   modalFooter: { display: "flex", gap: "12px", marginTop: "24px", justifyContent: "flex-end" },
   cancelBtn: { backgroundColor: "white", color: "#475569", border: "1px solid #CBD5E1", borderRadius: "8px", padding: "10px 20px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo', sans-serif" },
   saveBtn: { backgroundColor: "#2563EB", color: "white", border: "none", borderRadius: "8px", padding: "10px 24px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo', sans-serif" },
-};
+} as const;
 
-export  function MerchantsPage() {
+interface MerchantsPageProps {
+  // إصلاح 3: callback يُعلم App.tsx بتغيير البيانات لتحديث قائمة الـ autocomplete
+  onDataChange?: () => void;
+}
+
+export function MerchantsPage({ onDataChange }: MerchantsPageProps) {
   const [merchants, setMerchants] = useState<Merchant[]>([]);
-  const [search, setSearch] = useState("");
+  const [search,    setSearch]    = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [editing,   setEditing]   = useState<number | null>(null);
+  const [loading,   setLoading]   = useState(true);
 
-  const [form, setForm] = useState({
-    name: "",
-    address: "",
-    phone: "",
-  });
+  const [form, setForm] = useState({ name: "", address: "", phone: "" });
 
-  // 1. جلب التجار من SQLite عند فتح الصفحة
   const loadMerchants = async () => {
     try {
       setLoading(true);
@@ -56,67 +56,48 @@ export  function MerchantsPage() {
     }
   };
 
-  useEffect(() => {
-    loadMerchants();
-  }, []);
+  useEffect(() => { loadMerchants(); }, []);
 
-  // 2. تصفية البحث للجدول
   const filtered = merchants.filter((m) =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
     (m.address && m.address.toLowerCase().includes(search.toLowerCase())) ||
     (m.phone && m.phone.includes(search))
   );
 
-  // 3. فتح نافذة الإضافة
   const handleAddNew = () => {
     setEditing(null);
     setForm({ name: "", address: "", phone: "" });
     setShowModal(true);
   };
 
-  // 4. فتح نافذة التعديل ببيانات التاجر المختار
   const handleEditClick = (m: Merchant) => {
     setEditing(m.id);
-    setForm({
-      name: m.name,
-      address: m.address || "",
-      phone: m.phone || "",
-    });
+    setForm({ name: m.name, address: m.address || "", phone: m.phone || "" });
     setShowModal(true);
   };
 
-  // 5. حفظ البيانات (إدخال أو تعديل) في SQLite
   const handleSave = async () => {
     if (!form.name.trim()) return;
-
     try {
       if (editing === null) {
-        await merchantService.create(
-          form.name,
-          form.address.trim() || null,
-          form.phone.trim() || null
-        );
+        await merchantService.create(form.name, form.address.trim() || null, form.phone.trim() || null);
       } else {
-        await merchantService.update(
-          editing,
-          form.name,
-          form.address.trim() || null,
-          form.phone.trim() || null
-        );
+        await merchantService.update(editing, form.name, form.address.trim() || null, form.phone.trim() || null);
       }
       setShowModal(false);
-      await loadMerchants(); // تحديث الجدول فوراً بعد الحفظ
+      await loadMerchants();
+      onDataChange?.(); // إصلاح 3: إعلام App.tsx بالتغيير
     } catch (error) {
       console.error("خطأ أثناء حفظ التاجر:", error);
     }
   };
 
-  // 6. حذف تاجر نهائياً من قاعدة البيانات بعد تأكيد المستخدم
   const handleDelete = async (id: number) => {
-    if (confirm("هل أنت متأكد من حذف هذا التاجر؟ سيتم حذف جميع فواتيره المرتبطة به تلقائياً.")) {
+    if (confirm("هل أنت متأكد من حذف هذا التاجر؟")) {
       try {
         await merchantService.delete(id);
-        await loadMerchants(); // تحديث الجدول فوراً بعد الحذف
+        await loadMerchants();
+        onDataChange?.(); // إصلاح 3: إعلام App.tsx بالتغيير
       } catch (error) {
         console.error("خطأ أثناء حذف التاجر:", error);
       }
@@ -162,7 +143,7 @@ export  function MerchantsPage() {
             {loading ? (
               <tr>
                 <td colSpan={4} style={{ ...s.td, textAlign: "center", color: "#64748B" }}>
-                  جاري جلب البيانات من قاعدة البيانات...
+                  جاري جلب البيانات...
                 </td>
               </tr>
             ) : filtered.map((m) => (
@@ -172,16 +153,10 @@ export  function MerchantsPage() {
                 <td style={{ ...s.td, fontFamily: "monospace" }}>{m.phone || "—"}</td>
                 <td style={{ ...s.td, textAlign: "center" }}>
                   <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-                    <button
-                      style={{ ...s.actionBtn, color: "#2563EB" }}
-                      onClick={() => handleEditClick(m)}
-                    >
+                    <button style={{ ...s.actionBtn, color: "#2563EB" }} onClick={() => handleEditClick(m)}>
                       <Pencil size={16} />
                     </button>
-                    <button
-                      style={{ ...s.actionBtn, color: "#EF4444" }}
-                      onClick={() => handleDelete(m.id)}
-                    >
+                    <button style={{ ...s.actionBtn, color: "#EF4444" }} onClick={() => handleDelete(m.id)}>
                       <Trash2 size={16} />
                     </button>
                   </div>
