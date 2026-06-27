@@ -81,7 +81,8 @@ export function HomePage({
 
   const handleSave = useCallback(async (andPrint = false) => {
     // إصلاح BUG-1: حماية من الحفظ المزدوج
-    if (isSaving || !activeDraft || activeDraft.rows.length === 0) return;
+    if (isSaving || !activeDraft || activeDraft.rows.length === 0 || !activeDraft.merchantId) return;
+
     setIsSaving(true);
 
     try {
@@ -91,7 +92,7 @@ export function HomePage({
       );
 
       const invoiceData = {
-        merchant_id:  activeDraft.merchantId ?? null,
+        merchant_id: activeDraft.merchantId,
         invoice_date: new Date().toISOString().split("T")[0],
         total_amount: totalAmount,
       };

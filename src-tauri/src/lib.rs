@@ -49,7 +49,6 @@ pub fn run() {
                 CREATE TABLE IF NOT EXISTS invoices (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     merchant_id INTEGER NOT NULL,
-                    invoice_type TEXT NOT NULL, 
                     invoice_date DATETIME NOT NULL,
                     total_amount REAL DEFAULT 0.0,
                     FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
