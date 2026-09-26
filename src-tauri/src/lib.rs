@@ -151,13 +151,31 @@ pub fn run() {
                 }
             }
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // تسجيل الأحداث (Logging) — شغّال دائماً (تطوير ونسخة نهائية على
+            // حد سواء)، حتى نقدر نرى سبب أي مشكلة تصير عند الزبون لاحقاً.
+            // LogDir يكتب ملف فعلي دائم على القرص، Stdout مفيد فقط أثناء
+            // `tauri dev` من الطرفية.
+            // تدوير الملف: عند وصوله 5 ميجابايت يُعاد تسميته كنسخة قديمة واحدة
+            // ويبدأ ملف جديد فارغ (RotationStrategy::KeepOne يحذف أي نسخة أقدم
+            // من تلك الواحدة تلقائياً) — الحد الأقصى للمساحة المستخدَمة يبقى
+            // ثابتاً عند نحو 10 ميجابايت (ملفين كحد أقصى) مهما مرّت السنين،
+            // بدل تراكم بلا نهاية.
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .max_file_size(5 * 1024 * 1024)
+                    .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::LogDir {
+                            file_name: Some("mks".to_string()),
+                        },
+                    ))
+                    .target(tauri_plugin_log::Target::new(
+                        tauri_plugin_log::TargetKind::Stdout,
+                    ))
+                    .build(),
+            )?;
+
             Ok(())
         })
         .run(tauri::generate_context!())
