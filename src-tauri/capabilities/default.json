@@ -9,6 +9,12 @@
     "core:default",
     "sql:allow-load",
     "sql:allow-execute",
-    "sql:allow-select"
+    "sql:allow-select",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPDATA/generated/**" }
+      ]
+    }
   ]
 }

@@ -2,6 +2,12 @@ use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 use std::fs;
 
+// مهمة 1/2 من ميزة طباعة الفاتورة: أول وحدة Rust command مخصصة في المشروع.
+// راجع تعليق رأس الملف نفسه (invoice_template.rs) لتفاصيل النطاق والقرارات.
+mod invoice_template;
+// ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
+mod activation;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // تم تحديث الهيكل مباشرة في الـ Version 1 لقطع الترابط نهائياً
@@ -51,6 +57,12 @@ pub fn run() {
                     merchant_id INTEGER NOT NULL,
                     invoice_date DATETIME NOT NULL,
                     total_amount REAL DEFAULT 0.0,
+                    is_open INTEGER NOT NULL DEFAULT 0,
+                    number_year INTEGER,
+                    number_month INTEGER,
+                    number_merchant_id INTEGER,
+                    number_counter INTEGER,
+                    invoice_number TEXT,
                     FOREIGN KEY (merchant_id) REFERENCES merchants(id) ON DELETE CASCADE
                 );
 
@@ -75,21 +87,62 @@ pub fn run() {
                     FOREIGN KEY (box_id) REFERENCES boxes(id)
                 );
 
+                -- الأجهزة الموثوقة بالتشغيل. معرّف الجهاز نفسه يُخزَّن كسطر
+                -- device_id في جدول settings.
+                CREATE TABLE IF NOT EXISTS trusted_devices (
+                    device_id TEXT PRIMARY KEY,
+                    activated_at TEXT NOT NULL
+                );
+
                 -- فهارس (Indexes) لضمان سرعة البحث الفورية
                 CREATE INDEX IF NOT EXISTS idx_invoices_merchant ON invoices(merchant_id);
                 CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date);
                 CREATE INDEX IF NOT EXISTS idx_details_invoice ON invoice_details(invoice_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_numbering
+                    ON invoices(number_merchant_id, number_year, number_month, number_counter);
+                CREATE INDEX IF NOT EXISTS idx_invoices_is_open ON invoices(is_open);
+                CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(invoice_number);
             ",
             kind: MigrationKind::Up,
-        }
+        },
     ];
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // حماية من تعدد نسخ التطبيق تصل لنفس ملف قاعدة البيانات المحلي في آن واحد.
+    // يجب أن يكون أول plugin مسجَّل في السلسلة (متطلَّب موثَّق رسمياً من Tauri
+    // حتى يعترض محاولة فتح نسخة ثانية بشكل صحيح). الـ crate نفسه غير مدعوم على
+    // Android/iOS (نفس منطق #[cfg_attr(mobile, ...)] المستخدَم أصلاً في main.rs)،
+    // لذا يُسجَّل هنا فقط على سطح المكتب — وهو هدف النشر الفعلي الوحيد لهذا
+    // التطبيق أصلاً (راجع AI_CONTEXT.md القسم 2).
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:mks.db", migrations)
                 .build(),
         )
+        // مهمة 2/2 من ميزة طباعة الفاتورة: يفتح ملف xlsx المولَّد بتطبيق
+        // الجداول الافتراضي (Excel/LibreOffice Calc) من طرف الواجهة (JS) —
+        // راجع القرار المعماري رقم 2 و4 في توثيق المهمة (ممنوع أي أمر طباعة
+        // صامت/برمجي، الفتح فقط؛ المستخدم يطبع يدوياً من داخل ذلك التطبيق).
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            invoice_template::upload_invoice_template,
+            invoice_template::generate_invoice_file,
+            activation::verify_activation_code
+        ])
         .setup(|app| {
             // 🚀 فقط نتأكد من أن مجلد التطبيق موجود ليتم إنشاء قاعدة البيانات بداخله بنجاح
             if let Ok(app_dir) = app.handle().path().app_data_dir() {

@@ -6,7 +6,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
 node_modules
 dist
 dist-ssr
@@ -22,7 +21,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-combined_files.txt
 
+combined_files.txt
 docs
 docs/*
+
+# --- إضافات: Tauri build output + عناصر لاحظتها في شجرة مشروعك ---
+src-tauri/target/
+src-tauri/gen/
+project.zip
+.agents/
+.codex/
+*.xlsx

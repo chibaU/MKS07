@@ -1,15 +1,13 @@
 import { useState, useCallback, memo } from "react";
 import { Plus, X } from "lucide-react";
-import type { Draft } from "./invoice";
+import type { Draft, DraftRow } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
-import { makeDraft } from "./InvoiceManager";
+import { makeDraft, draftFromInvoice } from "./InvoiceManager";
+import { round2 } from "./InvoiceShared";
 import { invoiceService, type Merchant, type Product, type Box } from "../services/db";
+import { printInvoice } from "../services/print";
 
-const isDirty = (d: Draft) => d.merchantName.trim() !== "" || d.rows.length > 0;
-const newId   = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-// تقريب موحد للأرقام العشرية — إصلاح BUG-4
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 interface HomePageProps {
   realBoxes:  Box[];
@@ -33,9 +31,6 @@ export function HomePage({
   products,
 }: HomePageProps) {
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
-  const [savedTabId,     setSavedTabId]     = useState<string | null>(null);
-  // إصلاح BUG-1: منع الحفظ المزدوج
-  const [isSaving,       setIsSaving]       = useState(false);
 
   const activeDraft = drafts.find((d) => d.id === activeId) ?? drafts[0];
 
@@ -43,7 +38,6 @@ export function HomePage({
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d))),
   [setDrafts]);
 
-  // إصلاح S-1: onChange ثابتة لا تكسر memo
   const handleChange = useCallback((patch: Partial<Draft>) =>
     patchDraft(activeId, patch),
   [patchDraft, activeId]);
@@ -54,9 +48,20 @@ export function HomePage({
     setActiveId(id);
   }, [realBoxes, setDrafts, setActiveId]);
 
-  // إصلاح BUG-3: doClose معرّفة أولاً ثم requestClose تستخدمها
-  const doClose = useCallback((id: string) => {
+  // القسم 6: إغلاق فعلي لتبويب — يُنفَّذ setOpenState(invoiceId, false) أولاً
+  // إن كانت الفاتورة محفوظة فعلياً (invoiceId !== null)، قبل إزالة التبويب.
+  const doClose = useCallback(async (id: string) => {
     setConfirmCloseId(null);
+
+    const target = drafts.find((d) => d.id === id);
+    if (target && target.invoiceId !== null) {
+      try {
+        await invoiceService.setOpenState(target.invoiceId, 0);
+      } catch (error) {
+        console.error("خطأ أثناء إغلاق الفاتورة:", error);
+      }
+    }
+
     setDrafts((prev) => {
       const remaining = prev.filter((d) => d.id !== id);
       if (remaining.length === 0) {
@@ -67,63 +72,167 @@ export function HomePage({
       if (activeId === id) setActiveId(remaining[remaining.length - 1].id);
       return remaining;
     });
-  }, [activeId, realBoxes, setDrafts, setActiveId]);
+  }, [drafts, activeId, realBoxes, setDrafts, setActiveId]);
 
-  // إصلاح BUG-3: doClose في dependencies
+  // القسم 6: الشرط الجديد لإظهار حوار التأكيد هو invoiceId !== null فقط (بدل
+  // isDirty القديمة المبنية على merchantName/rows.length) — البيانات تُحفَظ
+  // فوراً أولاً بأول الآن، فلا يوجد شيء "يُفقَد" فعلياً بالإغلاق؛ الحوار يؤكّد
+  // إجراءً تجارياً متعمَّداً (إنهاء فاتورة نشطة) لا منع فقدان بيانات.
   const requestClose = useCallback((id: string) => {
     const draft = drafts.find((d) => d.id === id);
-    if (draft && isDirty(draft)) {
+    if (draft && draft.invoiceId !== null) {
       setConfirmCloseId(id);
     } else {
       doClose(id);
     }
   }, [drafts, doClose]);
 
-  const handleSave = useCallback(async (andPrint = false) => {
-    // إصلاح BUG-1: حماية من الحفظ المزدوج
-    if (isSaving || !activeDraft || activeDraft.rows.length === 0 || !activeDraft.merchantId) return;
+  // ── إدراج بند (أول بند أو بند لاحق) — القلب التشغيلي لدمج الشاشتين ──
+  // ملاحظة حرجة (القسم 3 نقطة 1): row الواردة من InvoiceLineEntry تحمل id
+  // مؤقتاً محلياً (Date.now() + Math.random())؛ يجب استبداله بالـ detailId
+  // الحقيقي المُرجَع من createInvoiceWithFirstDetail/appendDetail قبل إضافة
+  // الصف إلى draft.rows، وإلا تُبطَل قدرة deleteDetailAndTouch على استهداف
+  // الصف الصحيح لاحقاً.
+  const handleInsertRow = useCallback(async (row: DraftRow) => {
+    if (!activeDraft) return;
+    if (!activeDraft.merchantId) {
+      // احترازي: زر الإدراج معطَّل أصلاً بلا تاجر محدَّد فعلياً (نقطة 15) —
+      // هذا المسار لا يجب أن يُستدعى عملياً، لكن نرفض بوضوح إن حدث.
+      throw new Error("لا يمكن إدراج بند بدون تاجر محدَّد فعلياً.");
+    }
 
-    setIsSaving(true);
+    const targetId = activeDraft.id;
+    patchDraft(targetId, { isSavingLine: true });
+
+    // نفس تقريب round2 المستخدَم سابقاً في handleSave القديمة
+    const detail = {
+      product_name: row.product,
+      quantity: round2(row.weight),
+      price: round2(row.price),
+      subtotal: round2(row.weight * row.price),
+      boxes: row.boxesSnapshot.map((b) => ({ box_id: b.id, box_count: b.boxCount })),
+    };
 
     try {
-      // إصلاح BUG-4: تقريب total_amount
-      const totalAmount = round2(
-        activeDraft.rows.reduce((sum, r) => sum + r.weight * r.price, 0)
+      if (activeDraft.invoiceId === null) {
+        // أول بند فعلي — يُنشئ الفاتورة فعلياً في القاعدة (القاعدة الثابتة، القسم 2)
+        const result = await invoiceService.createInvoiceWithFirstDetail(
+          activeDraft.merchantId,
+          new Date().toISOString().split("T")[0],
+          detail,
+        );
+
+        patchDraft(targetId, {
+          invoiceId: result.invoiceId,
+          invoiceNumberInput: result.invoiceNumber,
+          isNumberLocked: true,
+          rows: [{ ...row, id: result.detailId }],
+          isSavingLine: false,
+        });
+      } else {
+        const totalAmount = round2(
+          [...activeDraft.rows, row].reduce((sum, r) => sum + r.weight * r.price, 0),
+        );
+
+        const detailId = await invoiceService.appendDetail(
+          activeDraft.invoiceId,
+          activeDraft.merchantId,
+          totalAmount,
+          detail,
+        );
+
+        patchDraft(targetId, {
+          rows: [...activeDraft.rows, { ...row, id: detailId }],
+          isSavingLine: false,
+        });
+      }
+    } catch (error) {
+      patchDraft(targetId, { isSavingLine: false });
+      // إعادة رمي الخطأ لازمة: InvoiceLineEntry.tsx يتلقّط هذا الاستثناء
+      // ليعرض رسالة الخطأ المحلية ويحافظ على قيم الحقول (لا يُصفِّرها).
+      throw error;
+    }
+  }, [activeDraft, patchDraft]);
+
+  // ── دورة حياة حقل رقم الفاتورة (القسم 4) + منع فتح نفس الفاتورة في أكثر من
+  // تبويب (القسم 5)، من مصدر حقل الرقم داخل الصفحة الرئيسية تحديداً ──
+  const onResolveInvoiceNumber = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || !activeDraft) return;
+
+    const targetId = activeDraft.id;
+
+    try {
+      const matched = await invoiceService.getInvoiceFullDetailsByNumber(trimmed);
+      if (!matched) return; // لا تطابق — الحقل يبقى نصاً حراً (القسم 4)
+
+      const existingTab = drafts.find(
+        (d) => d.invoiceId === matched.id && d.id !== targetId,
       );
+      if (existingTab) {
+        setActiveId(existingTab.id);
+        alert("هذه الفاتورة مفتوحة بالفعل في تبويب آخر");
+        patchDraft(targetId, { invoiceNumberInput: "" });
+        return;
+      }
 
-      const invoiceData = {
-        merchant_id: activeDraft.merchantId,
-        invoice_date: new Date().toISOString().split("T")[0],
-        total_amount: totalAmount,
-      };
+      // نقطة 13: ترقيم كسول قبل العرض إن كانت بلا رقم بعد
+      let finalInvoice = matched;
+      if (matched.invoice_number === null) {
+        const numbered = await invoiceService.ensureInvoiceNumbered(matched.id);
+        finalInvoice = { ...matched, invoice_number: numbered.invoiceNumber };
+      }
 
-      // إصلاح BUG-4: تقريب subtotal لكل سطر
-      const details = activeDraft.rows.map((row) => ({
-        product_name: row.product,
-        quantity:     round2(row.weight),
-        price:        round2(row.price),
-        subtotal:     round2(row.weight * row.price),
-        boxes:        row.boxesSnapshot.map((b) => ({ box_id: b.id, box_count: b.boxCount })),
-      }));
+      // نقطة 12: إعادة فتح الفواتير المغلقة تتحول فوراً إلى is_open=1 عند التحميل
+      await invoiceService.setOpenState(matched.id, 1);
 
-      await invoiceService.createInvoice(invoiceData, details);
-
-      setSavedTabId(activeId);
-      setTimeout(() => setSavedTabId(null), 2000);
-
-      if (andPrint) setTimeout(() => window.print(), 100);
-
+      const newDraft = draftFromInvoice(finalInvoice, realBoxes);
       setDrafts((prev) =>
-        prev.map((d) => (d.id === activeId ? makeDraft(activeId, realBoxes) : d))
+        prev.map((d) => (d.id === targetId ? { ...newDraft, id: targetId } : d)),
       );
     } catch (error) {
-      console.error("خطأ أثناء حفظ الفاتورة:", error);
-      alert("تعذر حفظ الفاتورة، يرجى مراجعة سجل الأخطاء.");
-    } finally {
-      // إصلاح BUG-1: إعادة تفعيل الزر بعد انتهاء العملية
-      setIsSaving(false);
+      console.error("خطأ أثناء تحميل الفاتورة برقمها:", error);
+      alert("تعذر تحميل الفاتورة، يرجى مراجعة سجل الأخطاء.");
     }
-  }, [isSaving, activeDraft, activeId, realBoxes, setDrafts]);
+  }, [activeDraft, drafts, realBoxes, patchDraft, setDrafts, setActiveId]);
+
+  // ── الوظيفة الجديدة لزر "حفظ" (القسم 3 نقطة 7): إغلاق الفاتورة النشطة ثم
+  // إعادة تعيين نفس التبويب لمسودة عذراء جديدة (لا حفظ فعلي، يحدث تلقائياً
+  // من أول بند) ──
+  const onCloseInvoice = useCallback(async (andPrint = false) => {
+    if (!activeDraft || activeDraft.invoiceId === null || activeDraft.isClosing) return;
+
+    const targetId = activeDraft.id;
+    const invoiceId = activeDraft.invoiceId;
+    patchDraft(targetId, { isClosing: true });
+
+    try {
+      await invoiceService.setOpenState(invoiceId, 0);
+
+      if (andPrint) {
+        // مهمة 2/2 من ميزة الطباعة: توليد PDF فعلي وفتحه، بدل window.print()
+        // القديم. لا ننتظر (await) هذا قبل تصفير التبويب لمسودة جديدة أدناه —
+        // الفاتورة نفسها أُغلقت وحُفظت بالفعل (setOpenState أعلاه)، فطباعتها
+        // عملية منفصلة تماماً لا يجب أن تُعطّل تجربة المستخدم بانتظارها.
+        printInvoice(invoiceId).catch((error) => {
+          console.error("خطأ أثناء توليد PDF الفاتورة:", error);
+          alert(
+            error instanceof Error
+              ? error.message
+              : "تعذّر توليد ملف الطباعة لهذه الفاتورة.",
+          );
+        });
+      }
+
+      setDrafts((prev) =>
+        prev.map((d) => (d.id === targetId ? makeDraft(targetId, realBoxes) : d)),
+      );
+    } catch (error) {
+      console.error("خطأ أثناء إغلاق الفاتورة:", error);
+      patchDraft(targetId, { isClosing: false });
+      alert("تعذر إغلاق الفاتورة، يرجى مراجعة سجل الأخطاء.");
+    }
+  }, [activeDraft, realBoxes, patchDraft, setDrafts]);
 
   if (!activeDraft) {
     return (
@@ -151,6 +260,9 @@ export function HomePage({
         {drafts.map((draft) => {
           const isActive = draft.id === activeId;
           const label = draft.merchantName.trim() || "فاتورة جديدة";
+          // القسم 7 (نقطة 14): تعطيل زر إغلاق التبويب أثناء أي عملية حفظ
+          // متعلقة ببند أو بإغلاق فاتورة لنفس التبويب تحديداً.
+          const tabBusy = draft.isSavingLine || draft.isClosing;
           return (
             <div
               key={draft.id}
@@ -174,23 +286,24 @@ export function HomePage({
               }}
             >
               <span>{label}</span>
-              {savedTabId === draft.id && (
-                <span style={{ color: "#10B981", fontSize: "12px", fontWeight: 600 }}>✓ تم الحفظ</span>
-              )}
               <button
-                onClick={(e) => { e.stopPropagation(); requestClose(draft.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!tabBusy) requestClose(draft.id);
+                }}
+                disabled={tabBusy}
                 style={{
                   border: "none",
                   background: "none",
-                  cursor: "pointer",
-                  color: isActive ? "#93C5FD" : "#CBD5E1",
+                  cursor: tabBusy ? "not-allowed" : "pointer",
+                  color: tabBusy ? "#E2E8F0" : (isActive ? "#93C5FD" : "#CBD5E1"),
                   display: "flex",
                   alignItems: "center",
                   padding: "2px",
                   borderRadius: "4px",
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#EF4444")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = isActive ? "#93C5FD" : "#CBD5E1")}
+                onMouseEnter={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = "#EF4444"; }}
+                onMouseLeave={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = isActive ? "#93C5FD" : "#CBD5E1"; }}
               >
                 <X size={13} />
               </button>
@@ -230,18 +343,19 @@ export function HomePage({
         </button>
       </div>
 
-      {/* إصلاح S-1: onChange ثابتة من handleChange بدل arrow inline */}
       <MemoInvoiceForm
         draft={activeDraft}
         onChange={handleChange}
-        onSave={handleSave}
+        handleInsertRow={handleInsertRow}
+        onResolveInvoiceNumber={onResolveInvoiceNumber}
+        onCloseInvoice={onCloseInvoice}
         merchants={merchants}
         products={products}
-        isSaving={isSaving}
       />
 
       {confirmCloseId && (
         <ConfirmDialog
+          invoiceNumber={drafts.find((d) => d.id === confirmCloseId)?.invoiceNumberInput ?? ""}
           onConfirm={() => doClose(confirmCloseId)}
           onCancel={() => setConfirmCloseId(null)}
         />
@@ -250,7 +364,17 @@ export function HomePage({
   );
 }
 
-function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+// القسم 6: نص/زر جديدان — الحوار يؤكّد إجراءً تجارياً متعمَّداً (إغلاق فاتورة
+// نشطة)، لا "منع فقدان بيانات" كما كان سابقاً.
+function ConfirmDialog({
+  invoiceNumber,
+  onConfirm,
+  onCancel,
+}: {
+  invoiceNumber: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   return (
     <div
       style={{
@@ -267,10 +391,10 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
       >
         <div style={{ fontSize: "28px", marginBottom: "12px" }}>⚠️</div>
         <div style={{ color: "#1E293B", fontSize: "17px", fontWeight: 700, marginBottom: "8px" }}>
-          تغييرات غير محفوظة
+          إغلاق الفاتورة رقم #{invoiceNumber}
         </div>
         <div style={{ color: "#64748B", fontSize: "14px", lineHeight: 1.6, marginBottom: "28px" }}>
-          هناك تغييرات غير محفوظة، هل تريد الخروج؟
+          سيتم تعليم هذه الفاتورة كمنتهية. يمكنك فتحها لاحقاً من أرشيف الفواتير للتعديل عليها في أي وقت.
         </div>
         <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
           <button
@@ -286,12 +410,12 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
           <button
             onClick={onConfirm}
             style={{
-              backgroundColor: "#EF4444", color: "white", border: "none",
+              backgroundColor: "#2563EB", color: "white", border: "none",
               borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
               fontFamily: "'Cairo', sans-serif", fontWeight: 600,
             }}
           >
-            خروج بدون حفظ
+            إغلاق الفاتورة
           </button>
         </div>
       </div>

@@ -1,229 +1,37 @@
-import { useState, useRef, useEffect, useMemo, memo, useCallback } from "react";
-import { Trash2, Plus, Save, Printer } from "lucide-react";
+import { useMemo, useCallback, useState, useEffect } from "react";
+import { Trash2, Save, Printer, X } from "lucide-react";
 import type { Draft, DraftRow } from "./invoice";
-import { type Merchant, type Product } from "../services/db";
-
-// ─── Styles ثابتة خارج المكون
-const c = {
-  input: {
-    padding: "10px 14px",
-    borderRadius: "8px",
-    border: "1px solid #E2E8F0",
-    backgroundColor: "#F8FAFC",
-    color: "#1E293B",
-    fontSize: "14px",
-    outline: "none",
-    fontFamily: "'Cairo', sans-serif",
-    width: "100%",
-    boxSizing: "border-box" as const,
-  },
-  label: {
-    color: "#374151",
-    fontSize: "13px",
-    fontWeight: 600,
-    display: "block",
-    marginBottom: "6px",
-  },
-  card: {
-    backgroundColor: "white",
-    borderRadius: "12px",
-    border: "1px solid #E2E8F0",
-    padding: "20px 24px",
-    marginBottom: "16px",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-  },
-  th: {
-    backgroundColor: "#F8FAFC",
-    color: "#64748B",
-    padding: "11px 14px",
-    textAlign: "right" as const,
-    fontSize: "13px",
-    fontWeight: 600,
-    borderBottom: "1px solid #E2E8F0",
-  },
-  td: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #F1F5F9",
-    color: "#1E293B",
-    fontSize: "14px",
-  },
-} as const;
-
-// ─── نوع الـ suggestion يحمل labelLower مُحسوباً مسبقاً — إصلاح BUG-2
-interface Suggestion {
-  id: number;
-  label: string;
-  labelLower: string;
-}
-
-interface AutocompleteProps {
-  value: string;
-  onChange: (val: string) => void;
-  onSelect: (val: string, id?: number) => void;
-  suggestions: Suggestion[];
-  placeholder?: string;
-  style?: React.CSSProperties;
-}
-
-const VISIBLE_LIMIT = 10;
-
-function AutocompleteInner({
-  value,
-  onChange,
-  onSelect,
-  suggestions,
-  placeholder,
-  style,
-}: AutocompleteProps) {
-  const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(-1);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // إصلاح S-3: reset فقط عند تغيير suggestions.length لا reference
-  const suggestionsLen = suggestions.length;
-  useEffect(() => {
-    setHighlighted(-1);
-  }, [suggestionsLen]);
-
-  // إصلاح BUG-2: نستخدم labelLower المُحسوب مسبقاً — لا toLowerCase() هنا
-  const filtered = useMemo(() => {
-    if (!value.trim()) return suggestions.slice(0, VISIBLE_LIMIT);
-    const q = value.toLowerCase();
-    const results: Suggestion[] = [];
-    for (const s of suggestions) {
-      if (s.labelLower.includes(q)) {
-        results.push(s);
-        if (results.length >= VISIBLE_LIMIT) break;
-      }
-    }
-    return results;
-  }, [value, suggestions]);
-
-  const handleBlur = (e: React.FocusEvent) => {
-    const rel = e.relatedTarget as Node | null;
-    if (rel && !wrapRef.current?.contains(rel)) {
-      setOpen(false);
-    } else if (!rel) {
-      setTimeout(() => setOpen(false), 150);
-    }
-  };
-
-  useEffect(() => {
-    if (highlighted >= 0 && highlighted < filtered.length && listRef.current) {
-      const el = listRef.current.children[highlighted] as HTMLElement;
-      el?.scrollIntoView({ block: "nearest" });
-    }
-  }, [filtered.length, highlighted]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!open || filtered.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlighted((h) => Math.max(h - 1, 0));
-    } else if (e.key === "Enter" && highlighted >= 0) {
-      e.preventDefault();
-      const item = filtered[highlighted];
-      if (!item) return;
-      onSelect(item.label, item.id);
-      setOpen(false);
-      setHighlighted(-1);
-    } else if (e.key === "Escape") {
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div
-      ref={wrapRef}
-      onBlur={handleBlur}
-      style={{ position: "relative", width: "100%" }}
-    >
-      <input
-        style={{ ...c.input, ...style }}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-          setHighlighted(-1);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={handleKeyDown}
-        autoComplete="off"
-      />
-      {open && filtered.length > 0 && (
-        <div
-          ref={listRef}
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            right: 0,
-            left: 0,
-            zIndex: 500,
-            backgroundColor: "white",
-            border: "1px solid #E2E8F0",
-            borderRadius: "8px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
-            maxHeight: "220px",
-            overflowY: "auto",
-          }}
-        >
-          {filtered.map((item, idx) => (
-            <div
-              key={item.id}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onSelect(item.label, item.id);
-                setOpen(false);
-                setHighlighted(-1);
-              }}
-              onMouseEnter={() => setHighlighted(idx)}
-              style={{
-                padding: "10px 14px",
-                cursor: "pointer",
-                fontSize: "14px",
-                color: "#1E293B",
-                fontFamily: "'Cairo', sans-serif",
-                backgroundColor: idx === highlighted ? "#EFF6FF" : "white",
-                borderBottom:
-                  idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
-              }}
-            >
-              {item.label}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const Autocomplete = memo(AutocompleteInner);
+import { type Merchant, type Product, invoiceService, StaleReferenceError } from "../services/db";
+import { formStyles as c, round2, formatMoney, Autocomplete, type Suggestion } from "./InvoiceShared";
+import { InvoiceLineEntry } from "./InvoiceLineEntry";
 
 // ─── InvoiceForm ──────────────────────────────────────────────────────────────
+// الشاشة الموحَّدة لإنشاء فاتورة جديدة وتعديل فاتورة محفوظة معاً (الجزء الثاني
+// من المهمة — يحل المشكلة الأولى: توحيد ما كان مقسَّماً بين هذا الملف
+// وInvoiceEditPanel.tsx المحذوف). لا فرق بين المسارين على مستوى هذا المكوّن؛
+// draft.invoiceId هو ما يحدد إن كانت الفاتورة محفوظة فعلياً أم لا (القاعدة
+// الثابتة في القسم 2: invoiceId !== null ⟺ rows.length > 0). الأنماط ومكوّن
+// الـ Autocomplete مستوردة الآن من InvoiceShared.tsx بدل نسخة مكرَّرة محلية.
 
 interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
-  onSave: (andPrint?: boolean) => void;
+  handleInsertRow: (row: DraftRow) => Promise<void>;
+  onResolveInvoiceNumber: (text: string) => void;
+  onCloseInvoice: (andPrint?: boolean) => void;
   merchants: Merchant[];
   products: Product[];
-  isSaving: boolean; // إصلاح BUG-1: يُعطَّل الزر أثناء الحفظ
 }
 
 export function InvoiceForm({
   draft,
   onChange,
-  onSave,
+  handleInsertRow,
+  onResolveInvoiceNumber,
+  onCloseInvoice,
   merchants,
   products,
-  isSaving,
 }: InvoiceFormProps) {
-  // إصلاح BUG-2: labelLower يُحسب مرة واحدة فقط عند تغيّر القائمة
   const merchantSuggestions = useMemo<Suggestion[]>(
     () =>
       merchants.map((m) => ({
@@ -234,69 +42,98 @@ export function InvoiceForm({
     [merchants],
   );
 
-  const productSuggestions = useMemo<Suggestion[]>(
-    () =>
-      products.map((p) => ({
-        id: p.id,
-        label: p.name,
-        labelLower: p.name.toLowerCase(),
-      })),
-    [products],
-  );
-
-  // إصلاح BUG-2: Map للصناديق — O(1)
+  // Map للصناديق — لعرض أسماء صناديق البنود (المحفوظة أو الجديدة) في الجدول
   const boxMap = useMemo(
     () => new Map(draft.boxes.map((b) => [b.id, b])),
     [draft.boxes],
   );
 
-  const updateBox = useCallback(
-    (boxId: number, val: string) =>
-      onChange({
-        boxes: draft.boxes.map((b) =>
-          b.id === boxId ? { ...b, grossInput: parseFloat(val) || 0 } : b,
-        ),
-      }),
-    [draft.boxes, onChange],
+  const handleMerchantChange = useCallback(
+    (val: string) => onChange({ merchantName: val, merchantId: undefined }),
+    [onChange],
   );
 
-  const totalNetWeight = useMemo(
-    () =>
-      draft.boxes.reduce(
-        (sum, b) => sum + Math.max(0, b.grossInput - b.emptyWeight),
-        0,
-      ),
-    [draft.boxes],
+  // نقطة 10 (القسم 3): حفظ التاجر فوراً عند الاختيار من قائمة الاقتراحات، إن
+  // كانت الفاتورة محفوظة فعلياً — بالإضافة إلى (لا بديلاً عن) تحديث
+  // merchantId/merchantName المحلي في المسودة كما هو الآن.
+  const handleMerchantSelect = useCallback(
+    (label: string, id?: number) => {
+      onChange({ merchantName: label, merchantId: id });
+      if (id !== undefined && draft.invoiceId !== null) {
+        invoiceService.updateMerchant(draft.invoiceId, id).catch((error) => {
+          console.error("خطأ أثناء تحديث التاجر:", error);
+          if (error instanceof StaleReferenceError) {
+            alert(error.message);
+          }
+        });
+      }
+    },
+    [onChange, draft.invoiceId],
   );
 
-  const handleInsert = useCallback(() => {
-    if (!draft.productInput.trim() || !draft.weightInput) return;
-
-    const row: DraftRow = {
-      id: Date.now() + Math.random(),
-      product: draft.productInput,
-      productId: draft.productId ?? null,
-      weight: parseFloat(draft.weightInput) || 0,
-      price: parseFloat(draft.priceInput) || 0,
-      boxesSnapshot: draft.boxes
-        .filter((b) => b.grossInput > 0)
-        .map((b) => ({ id: b.id, boxCount: b.grossInput })),
-    };
-
-    onChange({
-      rows: [...draft.rows, row],
-      productInput: "",
-      productId: undefined,
-      weightInput: "",
-      priceInput: "",
-      boxes: draft.boxes.map((b) => ({ ...b, grossInput: 0 })),
-    });
-  }, [draft, onChange]);
-
+  // حذف بند — القاعدة الثابتة (القسم 2) تعني أن حذف آخر بند متبقٍّ يحذف
+  // الفاتورة بالكامل من القاعدة؛ نُحذِّر المستخدم صراحة قبل ذلك (نقطة 11).
   const deleteRow = useCallback(
-    (rowId: number) =>
-      onChange({ rows: draft.rows.filter((r) => r.id !== rowId) }),
-    [draft.rows, onChange],
+    async (rowId: number) => {
+      const isLastRow = draft.rows.length === 1;
+
+      if (isLastRow) {
+        const confirmed = confirm(
+          "هذا آخر بند متبقٍّ في الفاتورة — حذفه سيحذف الفاتورة بالكامل من الأرشيف. متابعة؟",
+        );
+        if (!confirmed) return;
+
+        if (draft.invoiceId === null) {
+          // احترازي بحت: لا يجب أن يحدث فعلياً بحكم القاعدة الثابتة في القسم 2
+          onChange({ rows: [] });
+          return;
+        }
+
+        onChange({ isSavingLine: true });
+        try {
+          await invoiceService.deleteInvoice(draft.invoiceId);
+          // إعادة ضبط كاملة لحالة "فاتورة جديدة فارغة" مع إبقاء التبويب نفسه مفتوحاً
+          onChange({
+            invoiceId: null,
+            invoiceNumberInput: "",
+            isNumberLocked: false,
+            rows: [],
+            isSavingLine: false,
+          });
+        } catch (error) {
+          console.error("خطأ أثناء حذف الفاتورة:", error);
+          onChange({ isSavingLine: false });
+          alert("تعذر حذف الفاتورة، يرجى مراجعة سجل الأخطاء.");
+        }
+        return;
+      }
+
+      if (draft.invoiceId === null || !draft.merchantId) {
+        // احترازي بحت: لا يجب أن يحدث فعلياً بحكم القاعدة الثابتة في القسم 2
+        onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
+        return;
+      }
+
+      onChange({ isSavingLine: true });
+      try {
+        const remainingRows = draft.rows.filter((r) => r.id !== rowId);
+        const totalAmount = round2(
+          remainingRows.reduce((sum, r) => sum + r.weight * r.price, 0),
+        );
+        await invoiceService.deleteDetailAndTouch(
+          draft.invoiceId,
+          rowId,
+          draft.merchantId,
+          totalAmount,
+        );
+        onChange({ rows: remainingRows, isSavingLine: false });
+      } catch (error) {
+        console.error("خطأ أثناء حذف البند:", error);
+        onChange({ isSavingLine: false });
+        alert("تعذر حذف البند، يرجى مراجعة سجل الأخطاء.");
+      }
+    },
+    [draft, onChange],
   );
 
   const grandTotal = useMemo(
@@ -304,32 +141,78 @@ export function InvoiceForm({
     [draft.rows],
   );
 
-  const canInsert = Boolean(draft.productInput.trim() && draft.weightInput);
-  const canSave =
-    draft.rows.length > 0 && Boolean(draft.merchantId) && !isSaving;
+  // ─── تحديد بنود الجدول (Select/Highlight) — ميزة عرض فقط، لا تُرسَل للقاعدة ولا للـ Draft ──
+  // نقرة عادية: تحديد هذا البند فقط (أو إلغاء تحديده إن كان محدَّداً وحيداً بالفعل).
+  // Ctrl/Cmd+نقرة: تبديل هذا البند داخل التحديد الحالي دون التأثير على البقية (بنود متفرقة).
+  // Shift+نقرة: تحديد نطاق متصل بين آخر بند تم "تثبيته" (anchor) وهذا البند (بنود متتالية).
+  // التحديد يُحفَظ بمعرّفات البنود الحقيقية (row.id من القاعدة) لا بالفهرس، فيبقى
+  // صالحاً حتى لو تغيّر ترتيب الصفوف؛ ويُنظَّف تلقائياً أدناه عند حذف بند أو عند
+  // تبديل التبويب/الفاتورة المعروضة (معرّفات البنود فريدة عالمياً في القاعدة).
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [anchorRowId, setAnchorRowId] = useState<number | null>(null);
 
-  // إصلاح W1: callbacks ثابتة للـ Autocomplete — لا arrows inline تكسر memo
-  const handleMerchantChange = useCallback(
-    (val: string) => onChange({ merchantName: val, merchantId: undefined }),
-    [onChange],
+  useEffect(() => {
+    const idSet = new Set(draft.rows.map((r) => r.id));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<number>();
+      prev.forEach((id) => {
+        if (idSet.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setAnchorRowId((prev) => (prev !== null && !idSet.has(prev) ? null : prev));
+  }, [draft.rows]);
+
+  const handleRowClick = useCallback(
+    (e: React.MouseEvent<HTMLTableRowElement>, rowId: number, index: number) => {
+      if (e.shiftKey) {
+        const anchorIdx =
+          anchorRowId !== null ? draft.rows.findIndex((r) => r.id === anchorRowId) : -1;
+        if (anchorIdx !== -1) {
+          const [start, end] = anchorIdx <= index ? [anchorIdx, index] : [index, anchorIdx];
+          setSelectedIds(new Set(draft.rows.slice(start, end + 1).map((r) => r.id)));
+          return; // النطاق فقط يتغيّر — anchor يبقى كما هو (سلوك Shift القياسي)
+        }
+      }
+      if (e.ctrlKey || e.metaKey) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(rowId)) next.delete(rowId);
+          else next.add(rowId);
+          return next;
+        });
+        setAnchorRowId(rowId);
+        return;
+      }
+      setSelectedIds((prev) => (prev.size === 1 && prev.has(rowId) ? new Set() : new Set([rowId])));
+      setAnchorRowId(rowId);
+    },
+    [anchorRowId, draft.rows],
   );
 
-  const handleMerchantSelect = useCallback(
-    (label: string, id?: number) =>
-      onChange({ merchantName: label, merchantId: id }),
-    [onChange],
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setAnchorRowId(null);
+  }, []);
+
+  const selectedTotal = useMemo(
+    () =>
+      round2(
+        draft.rows
+          .filter((r) => selectedIds.has(r.id))
+          .reduce((sum, r) => sum + r.weight * r.price, 0),
+      ),
+    [draft.rows, selectedIds],
   );
 
-  const handleProductChange = useCallback(
-    (val: string) => onChange({ productInput: val, productId: undefined }),
-    [onChange],
-  );
-
-  const handleProductSelect = useCallback(
-    (label: string, id?: number) =>
-      onChange({ productInput: label, productId: id }),
-    [onChange],
-  );
+  // زر "حفظ"/"حفظ وطباعة" الآن يُغلِق الفاتورة (القسم 3 نقطة 7) بدل حفظها
+  // فعلياً (يحدث تلقائياً من أول بند) — يُفعَّل فقط إن كانت هناك فاتورة محفوظة
+  // فعلياً لإغلاقها، وفق القاعدة الثابتة الحاكمة لكل تفعيل/تعطيل في هذا الجزء.
+  const canClose = draft.invoiceId !== null && !draft.isClosing;
 
   return (
     <div style={{ padding: "28px 32px" }}>
@@ -342,7 +225,41 @@ export function InvoiceForm({
             marginBottom: "18px",
           }}
         >
-          إنشاء فاتورة جديدة
+          {draft.invoiceId !== null
+            ? `فاتورة رقم #${draft.invoiceNumberInput}`
+            : "إنشاء فاتورة جديدة"}
+        </div>
+
+        {/* رقم الفاتورة (القسم 4) */}
+        <div style={{ marginBottom: "18px" }}>
+          <label style={c.label}>رقم الفاتورة</label>
+          <input
+            type="text"
+            style={{
+              ...c.input,
+              backgroundColor: draft.isNumberLocked ? "#F1F5F9" : c.input.backgroundColor,
+              color: draft.isNumberLocked ? "#64748B" : c.input.color,
+              cursor: draft.isNumberLocked ? "not-allowed" : "text",
+            }}
+            placeholder="اكتب رقم فاتورة موجودة لفتحها، أو اتركه فارغاً ليُولَّد تلقائياً"
+            value={draft.invoiceNumberInput}
+            readOnly={draft.isNumberLocked}
+            onChange={(e) => onChange({ invoiceNumberInput: e.target.value })}
+            onBlur={(e) => {
+              if (!draft.isNumberLocked) onResolveInvoiceNumber(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !draft.isNumberLocked) {
+                e.preventDefault();
+                onResolveInvoiceNumber(draft.invoiceNumberInput);
+              }
+            }}
+          />
+          {draft.isNumberLocked && (
+            <div style={{ marginTop: "5px", fontSize: "12px", color: "#10B981" }}>
+              ✓ الرقم مؤكَّد — غير قابل للتعديل
+            </div>
+          )}
         </div>
 
         {/* التاجر */}
@@ -386,251 +303,17 @@ export function InvoiceForm({
           )}
         </div>
 
-        {/* الصناديق + المنتج */}
-        <div style={{ display: "flex", gap: "20px" }}>
-          {/* عمود الصناديق */}
-          <div
-            style={{
-              width: "270px",
-              flexShrink: 0,
-              backgroundColor: "#F8FAFC",
-              borderRadius: "10px",
-              border: "1px solid #E2E8F0",
-              padding: "14px",
-            }}
-          >
-            <div
-              style={{
-                color: "#374151",
-                fontSize: "13px",
-                fontWeight: 600,
-                marginBottom: "10px",
-              }}
-            >
-              الصناديق النشطة
-            </div>
-            <div
-              style={{
-                maxHeight: "220px",
-                overflowY: "auto",
-                borderRadius: "8px",
-                border: "1px solid #E2E8F0",
-                backgroundColor: "white",
-              }}
-            >
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th
-                      style={{
-                        ...c.th,
-                        padding: "8px 12px",
-                        fontSize: "12px",
-                        position: "sticky",
-                        top: 0,
-                      }}
-                    >
-                      الصندوق
-                    </th>
-                    <th
-                      style={{
-                        ...c.th,
-                        padding: "8px 12px",
-                        fontSize: "12px",
-                        position: "sticky",
-                        top: 0,
-                      }}
-                    >
-                      الوزن (كغ)
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.boxes.map((box) => (
-                    <tr key={box.id}>
-                      <td
-                        style={{
-                          ...c.td,
-                          padding: "8px 12px",
-                          fontSize: "13px",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {box.name}
-                        <div
-                          style={{
-                            fontSize: "11px",
-                            color: "#94A3B8",
-                            fontWeight: 400,
-                          }}
-                        >
-                          فارغ: {box.emptyWeight} كغ
-                        </div>
-                      </td>
-                      <td style={{ ...c.td, padding: "6px 12px" }}>
-                        <input
-                          type="number"
-                          value={box.grossInput || ""}
-                          placeholder="0"
-                          onChange={(e) => updateBox(box.id, e.target.value)}
-                          min="0"
-                          step="0.1"
-                          style={{
-                            padding: "5px 8px",
-                            borderRadius: "6px",
-                            border: "1px solid #CBD5E1",
-                            backgroundColor: "#F8FAFC",
-                            fontSize: "13px",
-                            width: "75px",
-                            textAlign: "center",
-                            fontFamily: "'Cairo', sans-serif",
-                            outline: "none",
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {draft.boxes.length === 0 && (
-                <div
-                  style={{
-                    padding: "16px",
-                    textAlign: "center",
-                    color: "#94A3B8",
-                    fontSize: "12px",
-                  }}
-                >
-                  لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
-                </div>
-              )}
-            </div>
-            <div
-              style={{
-                marginTop: "10px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 12px",
-                backgroundColor: "#EFF6FF",
-                borderRadius: "8px",
-                border: "1px solid #DBEAFE",
-              }}
-            >
-              <span
-                style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}
-              >
-                الوزن الصافي
-              </span>
-              <span
-                style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}
-              >
-                {totalNetWeight.toFixed(2)} كغ
-              </span>
-            </div>
-          </div>
-
-          {/* عمود المنتج */}
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              gap: "14px",
-            }}
-          >
-            <div>
-              <label style={c.label}>اسم المنتج</label>
-              <Autocomplete
-                value={draft.productInput}
-                onChange={handleProductChange}
-                onSelect={handleProductSelect}
-                suggestions={productSuggestions}
-                placeholder="أدخل اسم المنتج مباشرة أو اختر المقترح..."
-              />
-              {draft.productId && (
-                <div
-                  style={{
-                    marginTop: "4px",
-                    fontSize: "12px",
-                    color: "#10B981",
-                  }}
-                >
-                  ✓ منتج محفوظ
-                </div>
-              )}
-            </div>
-            <div>
-              <label style={c.label}>الوزن (كغ)</label>
-              <input
-                type="number"
-                style={c.input}
-                placeholder="0.0"
-                value={draft.weightInput}
-                onChange={(e) => onChange({ weightInput: e.target.value })}
-                min="0"
-                step="0.1"
-              />
-            </div>
-            <div>
-              <label style={c.label}>سعر المنتج (دج/كغ)</label>
-              <input
-                type="number"
-                style={c.input}
-                placeholder="0.00"
-                value={draft.priceInput}
-                onChange={(e) => onChange({ priceInput: e.target.value })}
-                min="0"
-                step="0.01"
-              />
-            </div>
-            {totalNetWeight > 0 && (
-              <div
-                style={{
-                  padding: "10px 14px",
-                  backgroundColor: "#F0FDF4",
-                  border: "1px solid #BBF7D0",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  color: "#166534",
-                }}
-              >
-                الوزن الصافي من الصناديق:{" "}
-                <strong>{totalNetWeight.toFixed(2)} كغ</strong> — سيُسجَّل مع
-                هذا السطر
-              </div>
-            )}
-          </div>
-        </div>
+        {/* إدراج بند جديد — مسار موحَّد مع تعديل الفاتورة المحفوظة عبر InvoiceLineEntry
+            (نفس المكوّن المستخدَم سابقاً في InvoiceEditPanel.tsx المحذوف الآن) */}
+        <InvoiceLineEntry
+          entry={draft}
+          onChange={onChange}
+          onInsert={handleInsertRow}
+          isBusy={draft.isSavingLine}
+          merchantSelected={Boolean(draft.merchantId)}
+          products={products}
+        />
       </div>
-
-      {/* زر الإدراج */}
-      <button
-        onClick={handleInsert}
-        disabled={!canInsert}
-        style={{
-          width: "100%",
-          height: "58px",
-          backgroundColor: canInsert ? "#2563EB" : "#93C5FD",
-          color: "white",
-          border: "none",
-          borderRadius: "10px",
-          fontSize: "17px",
-          fontWeight: 700,
-          cursor: canInsert ? "pointer" : "not-allowed",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "10px",
-          fontFamily: "'Cairo', sans-serif",
-          marginBottom: "16px",
-          boxShadow: canInsert ? "0 4px 14px rgba(37,99,235,0.35)" : "none",
-          transition: "all 0.15s",
-        }}
-      >
-        <Plus size={22} strokeWidth={2.5} />
-        إدراج السطر
-      </button>
 
       {/* جدول الفاتورة */}
       <div
@@ -669,6 +352,11 @@ export function InvoiceForm({
           </span>
           <span style={{ color: "#94A3B8", fontSize: "13px" }}>
             {draft.rows.length} بند
+            {selectedIds.size > 0 && (
+              <span style={{ color: "#B45309", fontWeight: 600, marginRight: "8px" }}>
+                · {selectedIds.size} محدَّد
+              </span>
+            )}
           </span>
         </div>
 
@@ -691,76 +379,139 @@ export function InvoiceForm({
             </tr>
           </thead>
           <tbody>
-            {draft.rows.map((row, i) => (
-              <tr
-                key={row.id}
-                style={{ backgroundColor: i % 2 === 0 ? "white" : "#FAFBFC" }}
-              >
-                <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>
-                  {i + 1}
-                </td>
-                <td style={{ ...c.td, fontWeight: 500 }}>{row.product}</td>
-                <td style={c.td}>{row.weight.toFixed(1)}</td>
-                <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>
-                  {row.price.toFixed(2)} دج
-                </td>
-                <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
-                  {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
-                    <div
-                      style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
+            {draft.rows.map((row, i) => {
+              const isSelected = selectedIds.has(row.id);
+              return (
+                <tr
+                  key={row.id}
+                  onClick={(e) => handleRowClick(e, row.id, i)}
+                  onMouseDown={(e) => {
+                    // يمنع تحديد نص المتصفح الافتراضي أثناء Shift+ضغط لتحديد نطاق
+                    if (e.shiftKey) e.preventDefault();
+                  }}
+                  title="اضغط للتحديد — Ctrl+ضغط لتحديد بنود متفرقة، Shift+ضغط لتحديد نطاق متتالٍ"
+                  style={{
+                    backgroundColor: isSelected ? "#DBEAFE" : i % 2 === 0 ? "white" : "#FAFBFC",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>
+                    {i + 1}
+                  </td>
+                  <td style={{ ...c.td, fontWeight: 500 }}>{row.product}</td>
+                  <td style={c.td}>{row.weight.toFixed(2)}</td>
+                  <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>
+                    {formatMoney(row.price)} دج
+                  </td>
+                  <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
+                    {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
+                      >
+                        {row.boxesSnapshot.map((bs, idx) => {
+                          const boxDef = boxMap.get(bs.id);
+                          return (
+                            <span
+                              key={idx}
+                              style={{
+                                backgroundColor: "#F1F5F9",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                              }}
+                            >
+                              {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span style={{ color: "#CBD5E1" }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
+                    {formatMoney(row.weight * row.price)} دج
+                  </td>
+                  <td style={c.td}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteRow(row.id);
+                      }}
+                      disabled={draft.isSavingLine}
+                      style={{
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "6px 12px",
+                        cursor: draft.isSavingLine ? "not-allowed" : "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "12px",
+                        fontFamily: "'Cairo', sans-serif",
+                        fontWeight: 500,
+                        backgroundColor: draft.isSavingLine ? "#F1F5F9" : "#FEF2F2",
+                        color: draft.isSavingLine ? "#94A3B8" : "#EF4444",
+                      }}
                     >
-                      {row.boxesSnapshot.map((bs, idx) => {
-                        const boxDef = boxMap.get(bs.id);
-                        return (
-                          <span
-                            key={idx}
-                            style={{
-                              backgroundColor: "#F1F5F9",
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              fontSize: "11px",
-                            }}
-                          >
-                            {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <span style={{ color: "#CBD5E1" }}>—</span>
-                  )}
+                      <Trash2 size={13} />
+                      حذف
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+
+            {/* المجموع اللحظي للبنود المحددة — يظهر فقط عند وجود تحديد فعلي،
+                ويُحسَب فوراً عند أي تغيير في التحديد (إضافة/إلغاء بند) عبر
+                useMemo أعلاه، بلا أي زر أو تأخير */}
+            {selectedIds.size > 0 && (
+              <tr style={{ backgroundColor: "#FFFBEB", borderTop: "2px solid #FDE68A" }}>
+                <td
+                  style={{ ...c.td, fontWeight: 700, color: "#92400E" }}
+                  colSpan={5}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}>
+                    إجمالي البنود المحددة ({selectedIds.size})
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clearSelection();
+                      }}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        color: "#B45309",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        fontFamily: "'Cairo', sans-serif",
+                      }}
+                    >
+                      <X size={12} />
+                      مسح التحديد
+                    </button>
+                  </span>
                 </td>
-                <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
-                  {(row.weight * row.price).toLocaleString("ar-DZ", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  دج
-                </td>
-                <td style={c.td}>
-                  <button
-                    onClick={() => deleteRow(row.id)}
-                    style={{
-                      border: "none",
-                      borderRadius: "6px",
-                      padding: "6px 12px",
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px",
-                      fontSize: "12px",
-                      fontFamily: "'Cairo', sans-serif",
-                      fontWeight: 500,
-                      backgroundColor: "#FEF2F2",
-                      color: "#EF4444",
-                    }}
-                  >
-                    <Trash2 size={13} />
-                    حذف
-                  </button>
+                <td
+                  style={{
+                    ...c.td,
+                    fontWeight: 800,
+                    color: "#92400E",
+                    fontSize: "15px",
+                  }}
+                  colSpan={2}
+                >
+                  {formatMoney(selectedTotal)} دج
                 </td>
               </tr>
-            ))}
+            )}
 
             {draft.rows.length > 0 && (
               <tr
@@ -784,11 +535,7 @@ export function InvoiceForm({
                   }}
                   colSpan={2}
                 >
-                  {grandTotal.toLocaleString("ar-DZ", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  دج
+                  {formatMoney(grandTotal)} دج
                 </td>
               </tr>
             )}
@@ -809,20 +556,21 @@ export function InvoiceForm({
         )}
       </div>
 
-      {/* أزرار الحفظ — إصلاح BUG-1: معطَّلة أثناء isSaving */}
+      {/* أزرار "حفظ"/"حفظ وطباعة" — أصبحت تُغلِق الفاتورة (is_open=false) بدل
+          حفظها فعلياً (القسم 3 نقطة 7)؛ تُعطَّل حسب draft.isClosing فقط */}
       <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
         <button
-          onClick={() => onSave(true)}
-          disabled={!canSave}
+          onClick={() => onCloseInvoice(true)}
+          disabled={!canClose}
           style={{
             backgroundColor: "white",
-            color: !canSave ? "#94A3B8" : "#374151",
+            color: !canClose ? "#94A3B8" : "#374151",
             border: "1px solid #CBD5E1",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor: !canSave ? "not-allowed" : "pointer",
+            cursor: !canClose ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -830,20 +578,20 @@ export function InvoiceForm({
           }}
         >
           <Printer size={16} />
-          {isSaving ? "جاري الحفظ..." : "حفظ وطباعة"}
+          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة"}
         </button>
         <button
-          onClick={() => onSave(false)}
-          disabled={!canSave}
+          onClick={() => onCloseInvoice(false)}
+          disabled={!canClose}
           style={{
-            backgroundColor: !canSave ? "#93C5FD" : "#2563EB",
+            backgroundColor: !canClose ? "#93C5FD" : "#2563EB",
             color: "white",
             border: "none",
             borderRadius: "8px",
             padding: "12px 28px",
             fontSize: "14px",
             fontWeight: 600,
-            cursor: !canSave ? "not-allowed" : "pointer",
+            cursor: !canClose ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "8px",
@@ -851,7 +599,7 @@ export function InvoiceForm({
           }}
         >
           <Save size={16} />
-          {isSaving ? "جاري الحفظ..." : "حفظ"}
+          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ"}
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import { Pencil, Trash2, Plus, Search, X, Eye, EyeOff } from "lucide-react";
-import { boxService, type Box } from "../services/db";
+import { boxService, invoiceService, type Box } from "../services/db";
 
 type Filter = "all" | "visible" | "hidden";
 
@@ -49,7 +50,11 @@ const s = {
   closeBtn: { border: "none", background: "none", color: "#94A3B8", cursor: "pointer", display: "flex", alignItems: "center" },
 };
 
-export function BoxesPage() {
+interface BoxesPageProps {
+  onDataChange?: () => void;
+}
+
+export function BoxesPage({ onDataChange }: BoxesPageProps) {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -122,6 +127,7 @@ export function BoxesPage() {
       }
       setShowModal(false);
       await loadBoxes();
+      onDataChange?.(); // إعلام App.tsx بالتغيير (نفس نمط MerchantsPage)
     } catch (error) {
       console.error("خطأ أثناء حفظ الصندوق:", error);
     }
@@ -133,20 +139,33 @@ export function BoxesPage() {
       const nextVisible = b.is_visible === 1 ? 0 : 1;
       await boxService.update(b.id, b.name, b.weight, nextVisible);
       await loadBoxes();
+      onDataChange?.(); // إعلام App.tsx — هذا يغيّر مباشرة قائمة الصناديق الظاهرة في نموذج الفاتورة
     } catch (error) {
       console.error("خطأ في تبديل رؤية الصندوق:", error);
     }
   };
 
-  // 7. حذف صندوق نهائياً
+  // 7. حذف صندوق نهائياً — نقطة 17 (القسم 3): يُمنع صراحة على مستوى التطبيق
+  // حذف صندوق مُستخدَم في أي فاتورة (مفتوحة أو مغلقة). لا اعتماد على أن
+  // boxService.delete نفسها سترفض العملية (PRAGMA foreign_keys غير مفعَّل
+  // عمداً، راجع تعليق القسم 4.1 أعلى getDB في db.ts).
   const handleDelete = async (id: number) => {
-    if (confirm("هل أنت متأكد من حذف هذا الصندوق؟")) {
-      try {
-        await boxService.delete(id);
-        await loadBoxes();
-      } catch (error) {
-        console.error("خطأ أثناء حذف الصندوق:", error);
+    if (!confirm("هل أنت متأكد من حذف هذا الصندوق؟")) return;
+
+    try {
+      const hasReferences = await invoiceService.boxHasInvoiceReferences(id);
+      if (hasReferences) {
+        alert(
+          "لا يمكن حذف الصناديق المستعملة في فواتير محفوظة؛ يجب حذف البنود المرتبطة بها أو تعديل الفواتير أولاً.",
+        );
+        return;
       }
+
+      await boxService.delete(id);
+      await loadBoxes();
+      onDataChange?.(); // إعلام App.tsx بالتغيير (نفس نمط MerchantsPage)
+    } catch (error) {
+      console.error("خطأ أثناء حذف الصندوق:", error);
     }
   };
 

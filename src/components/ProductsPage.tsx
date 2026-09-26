@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import { Pencil, Trash2, Plus, Search, X } from "lucide-react";
 import { productService, type Product } from "../services/db";
@@ -39,7 +40,11 @@ const s = {
   saveBtn: { backgroundColor: "#2563EB", color: "white", border: "none", borderRadius: "8px", padding: "10px 24px", fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo', sans-serif" },
 };
 
-export function ProductsPage() {
+interface ProductsPageProps {
+  onDataChange?: () => void;
+}
+
+export function ProductsPage({ onDataChange }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -95,6 +100,7 @@ export function ProductsPage() {
       }
       setShowModal(false);
       await loadProducts(); // تحديث القائمة فوراً
+      onDataChange?.(); // إعلام App.tsx بالتغيير (نفس نمط MerchantsPage)
     } catch (error) {
       console.error("خطأ أثناء حفظ المنتج:", error);
     }
@@ -106,6 +112,7 @@ export function ProductsPage() {
       try {
         await productService.delete(id);
         await loadProducts(); // تحديث القائمة فوراً
+        onDataChange?.(); // إعلام App.tsx بالتغيير (نفس نمط MerchantsPage)
       } catch (error) {
         console.error("خطأ أثناء حذف المنتج:", error);
       }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pencil, Trash2, Plus, Search, X } from "lucide-react";
-import { merchantService, type Merchant } from "../services/db";
+import { merchantService, invoiceService, type Merchant } from "../services/db";
 
 const s = {
   page: { padding: "32px", direction: "rtl" as const },
@@ -92,15 +92,26 @@ export function MerchantsPage({ onDataChange }: MerchantsPageProps) {
     }
   };
 
+  // نقطة 16 (القسم 3): يُمنع حذف تاجر له فواتير مرتبطة به تماماً — لا اعتماد
+  // على أن قاعدة البيانات سترفض العملية تلقائياً (PRAGMA foreign_keys غير
+  // مفعَّل عمداً، راجع تعليق القسم 4.1 أعلى getDB في db.ts).
   const handleDelete = async (id: number) => {
-    if (confirm("هل أنت متأكد من حذف هذا التاجر؟")) {
-      try {
-        await merchantService.delete(id);
-        await loadMerchants();
-        onDataChange?.(); // إصلاح 3: إعلام App.tsx بالتغيير
-      } catch (error) {
-        console.error("خطأ أثناء حذف التاجر:", error);
+    if (!confirm("هل أنت متأكد من حذف هذا التاجر؟")) return;
+
+    try {
+      const hasInvoices = await invoiceService.merchantHasInvoices(id);
+      if (hasInvoices) {
+        alert(
+          "لا يمكن حذف هذا التاجر لوجود فواتير مرتبطة به. يجب حذف جميع الفواتير الخاصة بالتاجر أولاً لتتمكن من حذفه.",
+        );
+        return;
       }
+
+      await merchantService.delete(id);
+      await loadMerchants();
+      onDataChange?.(); // إصلاح 3: إعلام App.tsx بالتغيير
+    } catch (error) {
+      console.error("خطأ أثناء حذف التاجر:", error);
     }
   };
 

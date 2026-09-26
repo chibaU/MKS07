@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "mks",
-  "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "productName": "MKS",
+  "version": "1.0.0",
+  "identifier": "dz.abdallahchiba.mks",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Abdallah Chiba",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
