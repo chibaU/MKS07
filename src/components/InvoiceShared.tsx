@@ -19,48 +19,54 @@ import {
 // والتعديل، وحذف InvoiceEditPanel.tsx الذي كان يستخدمها سابقاً بمفرده).
 
 // نفس كائن الأنماط (c) المُعرَّف في InvoiceForm.tsx — يُصدَّر هنا باسم formStyles
+// ملاحظة UI/UX (طلب صريح: تحسين بروز عناصر الصفحة الرئيسية لمستخدم ضعيف
+// النظر): تكبير خط شامل + تعميق ألوان النص المكتوم (كانت فاتحة جداً بحيث
+// تقارب حد وضوح غير كافٍ على خلفية بيضاء) + حدود أغلظ وأغمق بدل الرمادي
+// الفاتح جداً السابق (#E2E8F0) الذي كان بالكاد مرئي. هذه القيم تتحكم في كل
+// حقل/بطاقة/جدول عبر الصفحة الرئيسية (تُستورَد من InvoiceForm وHomePage
+// وInvoiceLineEntry)، فتغييرها هنا يرفع البروز في كل مكان دفعة واحدة.
 export const formStyles = {
   input: {
-    padding: "10px 14px",
+    padding: "13px 16px",
     borderRadius: "8px",
-    border: "1px solid #E2E8F0",
-    backgroundColor: "#F8FAFC",
-    color: "#1E293B",
-    fontSize: "14px",
+    border: "2px solid #64748B",
+    backgroundColor: "#FFFFFF",
+    color: "#0F172A",
+    fontSize: "17px",
     outline: "none",
     fontFamily: "'Cairo', sans-serif",
     width: "100%",
     boxSizing: "border-box" as const,
   },
   label: {
-    color: "#374151",
-    fontSize: "13px",
-    fontWeight: 600,
+    color: "#1E293B",
+    fontSize: "16px",
+    fontWeight: 700,
     display: "block",
-    marginBottom: "6px",
+    marginBottom: "8px",
   },
   card: {
-    backgroundColor: "white",
+    backgroundColor: "#F5F7FF",
     borderRadius: "12px",
-    border: "1px solid #E2E8F0",
-    padding: "20px 24px",
-    marginBottom: "16px",
+    border: "1px solid #C7D2FE",
+    padding: "24px 28px",
+    marginBottom: "18px",
     boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
   },
   th: {
-    backgroundColor: "#F8FAFC",
-    color: "#64748B",
-    padding: "11px 14px",
+    backgroundColor: "#F1F5F9",
+    color: "#1E293B",
+    padding: "13px 16px",
     textAlign: "right" as const,
-    fontSize: "13px",
-    fontWeight: 600,
-    borderBottom: "1px solid #E2E8F0",
+    fontSize: "15px",
+    fontWeight: 700,
+    borderBottom: "2px solid #CBD5E1",
   },
   td: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #F1F5F9",
-    color: "#1E293B",
-    fontSize: "14px",
+    padding: "14px 16px",
+    borderBottom: "1px solid #E2E8F0",
+    color: "#0F172A",
+    fontSize: "16px",
   },
 } as const;
 
@@ -221,7 +227,7 @@ export function MoneyInput({ value, onChange, placeholder = "0" }: MoneyInputPro
           ...formStyles.input,
           direction: "ltr",
           textAlign: "right",
-          paddingRight: "40px",
+          paddingRight: "50px",
         }}
       />
       <span
@@ -230,12 +236,13 @@ export function MoneyInput({ value, onChange, placeholder = "0" }: MoneyInputPro
           position: "absolute",
           top: 0,
           bottom: 0,
-          right: "14px",
+          right: "16px",
           display: "flex",
           alignItems: "center",
           direction: "ltr",
-          color: "#94A3B8",
-          fontSize: "14px",
+          color: "#475569",
+          fontSize: "17px",
+          fontWeight: 600,
           fontFamily: "'Cairo', sans-serif",
           pointerEvents: "none",
           userSelect: "none",
@@ -523,10 +530,10 @@ function AutocompleteInner({
             left: 0,
             zIndex: 500,
             backgroundColor: "white",
-            border: "1px solid #E2E8F0",
+            border: "2px solid #CBD5E1",
             borderRadius: "8px",
             boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
-            maxHeight: "220px",
+            maxHeight: "260px",
             overflowY: "auto",
           }}
         >
@@ -541,14 +548,14 @@ function AutocompleteInner({
               }}
               onMouseEnter={() => setHighlighted(idx)}
               style={{
-                padding: "10px 14px",
+                padding: "12px 16px",
                 cursor: "pointer",
-                fontSize: "14px",
-                color: "#1E293B",
+                fontSize: "16px",
+                color: "#0F172A",
                 fontFamily: "'Cairo', sans-serif",
-                backgroundColor: idx === highlighted ? "#EFF6FF" : "white",
+                backgroundColor: idx === highlighted ? "#DBEAFE" : "white",
                 borderBottom:
-                  idx < filtered.length - 1 ? "1px solid #F1F5F9" : "none",
+                  idx < filtered.length - 1 ? "1px solid #E2E8F0" : "none",
               }}
             >
               {item.label}

@@ -236,7 +236,7 @@ export function HomePage({
 
   if (!activeDraft) {
     return (
-      <div style={{ padding: "40px", textAlign: "center", fontFamily: "'Cairo', sans-serif", color: "#64748B" }}>
+      <div style={{ padding: "40px", textAlign: "center", fontFamily: "'Cairo', sans-serif", color: "#475569", fontSize: "16px" }}>
         جاري تحميل البيانات...
       </div>
     );
@@ -270,15 +270,15 @@ export function HomePage({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "8px",
-                padding: "12px 16px 11px",
+                gap: "10px",
+                padding: "14px 18px 13px",
                 cursor: "pointer",
                 borderBottom: isActive ? "3px solid #2563EB" : "3px solid transparent",
                 backgroundColor: isActive ? "white" : "#F1F5F9",
                 borderRadius: "8px 8px 0 0",
-                color: isActive ? "#1D4ED8" : "#64748B",
-                fontWeight: isActive ? 700 : 400,
-                fontSize: "14px",
+                color: isActive ? "#1D4ED8" : "#334155",
+                fontWeight: isActive ? 700 : 500,
+                fontSize: "16px",
                 whiteSpace: "nowrap",
                 userSelect: "none",
                 transition: "all 0.15s",
@@ -296,16 +296,16 @@ export function HomePage({
                   border: "none",
                   background: "none",
                   cursor: tabBusy ? "not-allowed" : "pointer",
-                  color: tabBusy ? "#E2E8F0" : (isActive ? "#93C5FD" : "#CBD5E1"),
+                  color: tabBusy ? "#CBD5E1" : (isActive ? "#60A5FA" : "#94A3B8"),
                   display: "flex",
                   alignItems: "center",
-                  padding: "2px",
+                  padding: "3px",
                   borderRadius: "4px",
                 }}
                 onMouseEnter={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = "#EF4444"; }}
-                onMouseLeave={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = isActive ? "#93C5FD" : "#CBD5E1"; }}
+                onMouseLeave={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = isActive ? "#60A5FA" : "#94A3B8"; }}
               >
-                <X size={13} />
+                <X size={16} />
               </button>
             </div>
           );
@@ -316,14 +316,15 @@ export function HomePage({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "6px",
-            padding: "10px 14px",
-            border: "1px dashed #CBD5E1",
+            gap: "8px",
+            padding: "12px 16px",
+            border: "2px dashed #94A3B8",
             borderBottom: "none",
             borderRadius: "8px 8px 0 0",
             backgroundColor: "transparent",
-            color: "#64748B",
-            fontSize: "13px",
+            color: "#334155",
+            fontSize: "15px",
+            fontWeight: 500,
             cursor: "pointer",
             fontFamily: "'Cairo', sans-serif",
             marginBottom: "2px",
@@ -335,10 +336,10 @@ export function HomePage({
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
-            (e.currentTarget as HTMLButtonElement).style.color = "#64748B";
+            (e.currentTarget as HTMLButtonElement).style.color = "#334155";
           }}
         >
-          <Plus size={14} />
+          <Plus size={16} />
           فاتورة جديدة
         </button>
       </div>
@@ -389,20 +390,20 @@ function ConfirmDialog({
           width: "380px", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
         }}
       >
-        <div style={{ fontSize: "28px", marginBottom: "12px" }}>⚠️</div>
-        <div style={{ color: "#1E293B", fontSize: "17px", fontWeight: 700, marginBottom: "8px" }}>
+        <div style={{ fontSize: "32px", marginBottom: "14px" }}>⚠️</div>
+        <div style={{ color: "#1E293B", fontSize: "19px", fontWeight: 700, marginBottom: "10px" }}>
           إغلاق الفاتورة رقم #{invoiceNumber}
         </div>
-        <div style={{ color: "#64748B", fontSize: "14px", lineHeight: 1.6, marginBottom: "28px" }}>
+        <div style={{ color: "#334155", fontSize: "16px", lineHeight: 1.6, marginBottom: "28px" }}>
           سيتم تعليم هذه الفاتورة كمنتهية. يمكنك فتحها لاحقاً من أرشيف الفواتير للتعديل عليها في أي وقت.
         </div>
-        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}
             style={{
-              backgroundColor: "white", color: "#374151", border: "1px solid #E2E8F0",
-              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
-              fontFamily: "'Cairo', sans-serif", fontWeight: 500,
+              backgroundColor: "white", color: "#1E293B", border: "2px solid #94A3B8",
+              borderRadius: "8px", padding: "12px 22px", fontSize: "16px", cursor: "pointer",
+              fontFamily: "'Cairo', sans-serif", fontWeight: 600,
             }}
           >
             إلغاء
@@ -411,8 +412,8 @@ function ConfirmDialog({
             onClick={onConfirm}
             style={{
               backgroundColor: "#2563EB", color: "white", border: "none",
-              borderRadius: "8px", padding: "10px 20px", fontSize: "14px", cursor: "pointer",
-              fontFamily: "'Cairo', sans-serif", fontWeight: 600,
+              borderRadius: "8px", padding: "12px 22px", fontSize: "16px", cursor: "pointer",
+              fontFamily: "'Cairo', sans-serif", fontWeight: 700,
             }}
           >
             إغلاق الفاتورة

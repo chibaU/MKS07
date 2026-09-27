@@ -244,24 +244,24 @@ export function InvoiceLineEntry({
 
   return (
     <div>
-      <div style={{ display: "flex", gap: "20px" }}>
+      <div style={{ display: "flex", gap: "24px" }}>
         {/* عمود الصناديق */}
         <div
           style={{
-            width: "270px",
+            width: "300px",
             flexShrink: 0,
-            backgroundColor: "#F8FAFC",
+            backgroundColor: "#F0FDFA",
             borderRadius: "10px",
-            border: "1px solid #E2E8F0",
-            padding: "14px",
+            border: "2px solid #5EEAD4",
+            padding: "16px",
           }}
         >
           <div
             style={{
-              color: "#374151",
-              fontSize: "13px",
-              fontWeight: 600,
-              marginBottom: "10px",
+              color: "#115E59",
+              fontSize: "15px",
+              fontWeight: 700,
+              marginBottom: "12px",
             }}
           >
             الصناديق النشطة
@@ -271,7 +271,7 @@ export function InvoiceLineEntry({
               maxHeight: "220px",
               overflowY: "auto",
               borderRadius: "8px",
-              border: "1px solid #E2E8F0",
+              border: "1px solid #99F6E4",
               backgroundColor: "white",
             }}
           >
@@ -281,8 +281,11 @@ export function InvoiceLineEntry({
                   <th
                     style={{
                       ...c.th,
-                      padding: "8px 12px",
-                      fontSize: "12px",
+                      padding: "10px 14px",
+                      fontSize: "14px",
+                      backgroundColor: "#CCFBF1",
+                      color: "#115E59",
+                      borderBottom: "2px solid #5EEAD4",
                       position: "sticky",
                       top: 0,
                     }}
@@ -292,8 +295,11 @@ export function InvoiceLineEntry({
                   <th
                     style={{
                       ...c.th,
-                      padding: "8px 12px",
-                      fontSize: "12px",
+                      padding: "10px 14px",
+                      fontSize: "14px",
+                      backgroundColor: "#CCFBF1",
+                      color: "#115E59",
+                      borderBottom: "2px solid #5EEAD4",
                       position: "sticky",
                       top: 0,
                     }}
@@ -308,23 +314,23 @@ export function InvoiceLineEntry({
                     <td
                       style={{
                         ...c.td,
-                        padding: "8px 12px",
-                        fontSize: "13px",
-                        fontWeight: 500,
+                        padding: "10px 14px",
+                        fontSize: "15px",
+                        fontWeight: 600,
                       }}
                     >
                       {box.name}
                       <div
                         style={{
-                          fontSize: "11px",
-                          color: "#94A3B8",
+                          fontSize: "13px",
+                          color: "#0F766E",
                           fontWeight: 400,
                         }}
                       >
                         فارغ: {box.emptyWeight} كغ
                       </div>
                     </td>
-                    <td style={{ ...c.td, padding: "6px 12px" }}>
+                    <td style={{ ...c.td, padding: "8px 14px" }}>
                       <input
                         type="number"
                         value={box.countInput || ""}
@@ -333,12 +339,13 @@ export function InvoiceLineEntry({
                         min="0"
                         step="1"
                         style={{
-                          padding: "5px 8px",
+                          padding: "8px 10px",
                           borderRadius: "6px",
-                          border: "1px solid #CBD5E1",
-                          backgroundColor: "#F8FAFC",
-                          fontSize: "13px",
-                          width: "75px",
+                          border: "2px solid #0D9488",
+                          backgroundColor: "#FFFFFF",
+                          color: "#0F172A",
+                          fontSize: "15px",
+                          width: "85px",
                           textAlign: "center",
                           fontFamily: "'Cairo', sans-serif",
                           outline: "none",
@@ -354,8 +361,8 @@ export function InvoiceLineEntry({
                 style={{
                   padding: "16px",
                   textAlign: "center",
-                  color: "#94A3B8",
-                  fontSize: "12px",
+                  color: "#0F766E",
+                  fontSize: "14px",
                 }}
               >
                 لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
@@ -364,23 +371,23 @@ export function InvoiceLineEntry({
           </div>
           <div
             style={{
-              marginTop: "10px",
+              marginTop: "12px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              padding: "8px 12px",
+              padding: "10px 14px",
               backgroundColor: "#EFF6FF",
               borderRadius: "8px",
-              border: "1px solid #DBEAFE",
+              border: "2px solid #BFDBFE",
             }}
           >
             <span
-              style={{ color: "#3B82F6", fontSize: "12px", fontWeight: 600 }}
+              style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}
             >
               وزن الصناديق الفارغة
             </span>
             <span
-              style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}
+              style={{ color: "#1D4ED8", fontSize: "16px", fontWeight: 700 }}
             >
               {round2(totalEmptyWeight).toFixed(2)} كغ
             </span>
@@ -393,7 +400,7 @@ export function InvoiceLineEntry({
             flex: 1,
             display: "flex",
             flexDirection: "column",
-            gap: "14px",
+            gap: "16px",
           }}
         >
           <div>
@@ -407,7 +414,7 @@ export function InvoiceLineEntry({
             />
             {entry.productId && (
               <div
-                style={{ marginTop: "4px", fontSize: "12px", color: "#10B981" }}
+                style={{ marginTop: "6px", fontSize: "14px", fontWeight: 600, color: "#047857" }}
               >
                 ✓ منتج محفوظ
               </div>
@@ -429,11 +436,12 @@ export function InvoiceLineEntry({
               <div
                 style={{
                   marginTop: "8px",
-                  padding: "10px 14px",
+                  padding: "12px 16px",
                   backgroundColor: "#FEF2F2",
-                  border: "1px solid #FECACA",
+                  border: "2px solid #FECACA",
                   borderRadius: "8px",
-                  fontSize: "13px",
+                  fontSize: "15px",
+                  fontWeight: 600,
                   color: "#B91C1C",
                 }}
               >
@@ -444,11 +452,12 @@ export function InvoiceLineEntry({
               <div
                 style={{
                   marginTop: "8px",
-                  padding: "10px 14px",
+                  padding: "12px 16px",
                   backgroundColor: "#FEF2F2",
-                  border: "1px solid #FECACA",
+                  border: "2px solid #FECACA",
                   borderRadius: "8px",
-                  fontSize: "13px",
+                  fontSize: "15px",
+                  fontWeight: 600,
                   color: "#B91C1C",
                 }}
               >
@@ -461,11 +470,12 @@ export function InvoiceLineEntry({
               <div
                 style={{
                   marginTop: "8px",
-                  padding: "10px 14px",
+                  padding: "12px 16px",
                   backgroundColor: "#F0FDF4",
-                  border: "1px solid #BBF7D0",
+                  border: "2px solid #BBF7D0",
                   borderRadius: "8px",
-                  fontSize: "13px",
+                  fontSize: "15px",
+                  fontWeight: 600,
                   color: "#166534",
                 }}
               >
@@ -488,11 +498,12 @@ export function InvoiceLineEntry({
         <div
           style={{
             marginTop: "14px",
-            padding: "10px 14px",
+            padding: "12px 16px",
             backgroundColor: "#FEF2F2",
-            border: "1px solid #FECACA",
+            border: "2px solid #FECACA",
             borderRadius: "8px",
-            fontSize: "13px",
+            fontSize: "15px",
+            fontWeight: 600,
             color: "#B91C1C",
           }}
         >
@@ -505,12 +516,12 @@ export function InvoiceLineEntry({
         disabled={insertDisabled}
         style={{
           width: "100%",
-          height: "50px",
+          height: "56px",
           backgroundColor: insertDisabled ? "#93C5FD" : "#2563EB",
           color: "white",
           border: "none",
           borderRadius: "10px",
-          fontSize: "15px",
+          fontSize: "17px",
           fontWeight: 700,
           cursor: insertDisabled ? "not-allowed" : "pointer",
           display: "flex",
@@ -523,7 +534,7 @@ export function InvoiceLineEntry({
           transition: "all 0.15s",
         }}
       >
-        <Plus size={18} strokeWidth={2.5} />
+        <Plus size={20} strokeWidth={2.5} />
         {isBusy ? "جارٍ الإدراج..." : "إدراج السطر"}
       </button>
     </div>

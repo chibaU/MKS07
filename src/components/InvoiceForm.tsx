@@ -220,9 +220,9 @@ export function InvoiceForm({
         <div
           style={{
             color: "#1E293B",
-            fontSize: "16px",
-            fontWeight: 600,
-            marginBottom: "18px",
+            fontSize: "20px",
+            fontWeight: 700,
+            marginBottom: "20px",
           }}
         >
           {draft.invoiceId !== null
@@ -256,7 +256,7 @@ export function InvoiceForm({
             }}
           />
           {draft.isNumberLocked && (
-            <div style={{ marginTop: "5px", fontSize: "12px", color: "#10B981" }}>
+            <div style={{ marginTop: "6px", fontSize: "14px", fontWeight: 600, color: "#047857" }}>
               ✓ الرقم مؤكَّد — غير قابل للتعديل
             </div>
           )}
@@ -275,12 +275,13 @@ export function InvoiceForm({
           {draft.merchantId && (
             <div
               style={{
-                marginTop: "5px",
-                fontSize: "12px",
-                color: "#10B981",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 600,
+                color: "#047857",
                 display: "flex",
                 alignItems: "center",
-                gap: "4px",
+                gap: "5px",
               }}
             >
               ✓ تاجر محفوظ — سيتم ربط الفاتورة بحسابه
@@ -289,12 +290,13 @@ export function InvoiceForm({
           {!draft.merchantId && draft.merchantName.trim() !== "" && (
             <div
               style={{
-                marginTop: "5px",
-                fontSize: "12px",
-                color: "#EF4444",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 600,
+                color: "#DC2626",
                 display: "flex",
                 alignItems: "center",
-                gap: "4px",
+                gap: "5px",
               }}
             >
               ⚠ هذا الاسم غير مسجَّل — اختر تاجراً من القائمة أو سجّله أولاً من
@@ -335,25 +337,25 @@ export function InvoiceForm({
             alignItems: "center",
           }}
         >
-          <span style={{ color: "#1E293B", fontSize: "15px", fontWeight: 600 }}>
+          <span style={{ color: "#1E293B", fontSize: "17px", fontWeight: 700 }}>
             بنود الفاتورة
             {draft.merchantName && (
               <span
                 style={{
                   color: "#2563EB",
                   marginRight: "8px",
-                  fontSize: "14px",
-                  fontWeight: 500,
+                  fontSize: "16px",
+                  fontWeight: 600,
                 }}
               >
                 — {draft.merchantName}
               </span>
             )}
           </span>
-          <span style={{ color: "#94A3B8", fontSize: "13px" }}>
+          <span style={{ color: "#475569", fontSize: "15px", fontWeight: 500 }}>
             {draft.rows.length} بند
             {selectedIds.size > 0 && (
-              <span style={{ color: "#B45309", fontWeight: 600, marginRight: "8px" }}>
+              <span style={{ color: "#B45309", fontWeight: 700, marginRight: "8px" }}>
                 · {selectedIds.size} محدَّد
               </span>
             )}
@@ -396,18 +398,18 @@ export function InvoiceForm({
                     userSelect: "none",
                   }}
                 >
-                  <td style={{ ...c.td, color: "#94A3B8", width: "50px" }}>
+                  <td style={{ ...c.td, color: "#475569", fontWeight: 600, width: "56px" }}>
                     {i + 1}
                   </td>
-                  <td style={{ ...c.td, fontWeight: 500 }}>{row.product}</td>
-                  <td style={c.td}>{row.weight.toFixed(2)}</td>
-                  <td style={{ ...c.td, color: "#0F766E", fontWeight: 600 }}>
+                  <td style={{ ...c.td, fontWeight: 600 }}>{row.product}</td>
+                  <td style={c.td}>{row.weight.toFixed(1)}</td>
+                  <td style={{ ...c.td, color: "#0F766E", fontWeight: 700 }}>
                     {formatMoney(row.price)} دج
                   </td>
-                  <td style={{ ...c.td, fontSize: "12px", color: "#64748B" }}>
+                  <td style={{ ...c.td, fontSize: "14px", color: "#334155" }}>
                     {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
                       <div
-                        style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
+                        style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}
                       >
                         {row.boxesSnapshot.map((bs, idx) => {
                           const boxDef = boxMap.get(bs.id);
@@ -416,9 +418,11 @@ export function InvoiceForm({
                               key={idx}
                               style={{
                                 backgroundColor: "#F1F5F9",
-                                padding: "2px 6px",
+                                border: "1px solid #E2E8F0",
+                                padding: "4px 8px",
                                 borderRadius: "4px",
-                                fontSize: "11px",
+                                fontSize: "13px",
+                                fontWeight: 500,
                               }}
                             >
                               {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
@@ -427,10 +431,10 @@ export function InvoiceForm({
                         })}
                       </div>
                     ) : (
-                      <span style={{ color: "#CBD5E1" }}>—</span>
+                      <span style={{ color: "#94A3B8" }}>—</span>
                     )}
                   </td>
-                  <td style={{ ...c.td, color: "#2563EB", fontWeight: 700 }}>
+                  <td style={{ ...c.td, color: "#2563EB", fontWeight: 700, fontSize: "17px" }}>
                     {formatMoney(row.weight * row.price)} دج
                   </td>
                   <td style={c.td}>
@@ -443,19 +447,19 @@ export function InvoiceForm({
                       style={{
                         border: "none",
                         borderRadius: "6px",
-                        padding: "6px 12px",
+                        padding: "8px 14px",
                         cursor: draft.isSavingLine ? "not-allowed" : "pointer",
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "4px",
-                        fontSize: "12px",
+                        gap: "5px",
+                        fontSize: "14px",
                         fontFamily: "'Cairo', sans-serif",
-                        fontWeight: 500,
+                        fontWeight: 600,
                         backgroundColor: draft.isSavingLine ? "#F1F5F9" : "#FEF2F2",
-                        color: draft.isSavingLine ? "#94A3B8" : "#EF4444",
+                        color: draft.isSavingLine ? "#94A3B8" : "#DC2626",
                       }}
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={15} />
                       حذف
                     </button>
                   </td>
@@ -484,17 +488,17 @@ export function InvoiceForm({
                         background: "none",
                         cursor: "pointer",
                         color: "#B45309",
-                        fontSize: "12px",
-                        fontWeight: 600,
+                        fontSize: "14px",
+                        fontWeight: 700,
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "3px",
-                        padding: "2px 8px",
+                        padding: "3px 9px",
                         borderRadius: "4px",
                         fontFamily: "'Cairo', sans-serif",
                       }}
                     >
-                      <X size={12} />
+                      <X size={14} />
                       مسح التحديد
                     </button>
                   </span>
@@ -504,7 +508,7 @@ export function InvoiceForm({
                     ...c.td,
                     fontWeight: 800,
                     color: "#92400E",
-                    fontSize: "15px",
+                    fontSize: "18px",
                   }}
                   colSpan={2}
                 >
@@ -531,7 +535,7 @@ export function InvoiceForm({
                     ...c.td,
                     fontWeight: 800,
                     color: "#1E40AF",
-                    fontSize: "15px",
+                    fontSize: "18px",
                   }}
                   colSpan={2}
                 >
@@ -547,8 +551,8 @@ export function InvoiceForm({
             style={{
               padding: "40px",
               textAlign: "center",
-              color: "#94A3B8",
-              fontSize: "14px",
+              color: "#64748B",
+              fontSize: "16px",
             }}
           >
             لا توجد بنود — أضف منتجاً باستخدام النموذج أعلاه
@@ -564,20 +568,20 @@ export function InvoiceForm({
           disabled={!canClose}
           style={{
             backgroundColor: "white",
-            color: !canClose ? "#94A3B8" : "#374151",
-            border: "1px solid #CBD5E1",
+            color: !canClose ? "#94A3B8" : "#1E293B",
+            border: `2px solid ${!canClose ? "#CBD5E1" : "#64748B"}`,
             borderRadius: "8px",
-            padding: "12px 28px",
-            fontSize: "14px",
-            fontWeight: 600,
+            padding: "14px 32px",
+            fontSize: "16px",
+            fontWeight: 700,
             cursor: !canClose ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
-            gap: "8px",
+            gap: "9px",
             fontFamily: "'Cairo', sans-serif",
           }}
         >
-          <Printer size={16} />
+          <Printer size={18} />
           {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة"}
         </button>
         <button
@@ -588,17 +592,17 @@ export function InvoiceForm({
             color: "white",
             border: "none",
             borderRadius: "8px",
-            padding: "12px 28px",
-            fontSize: "14px",
-            fontWeight: 600,
+            padding: "14px 32px",
+            fontSize: "16px",
+            fontWeight: 700,
             cursor: !canClose ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
-            gap: "8px",
+            gap: "9px",
             fontFamily: "'Cairo', sans-serif",
           }}
         >
-          <Save size={16} />
+          <Save size={18} />
           {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ"}
         </button>
       </div>
