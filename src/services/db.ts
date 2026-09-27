@@ -16,6 +16,13 @@ export interface Setting {
 // معرّفات الأجهزة المسموح لها بالعمل، لا أي بيانات عن الجهاز الحالي بعينه.
 const SETTINGS_KEY_DEVICE_ID = 'device_id';
 
+// ── مهمة 3/2 من ميزة طباعة الفاتورة: الطباعة الصامتة المباشرة ──
+// اسم الطابعة التي يختارها المستخدم من صفحة الإعدادات لتُستخدَم في كل طباعة
+// مباشرة لاحقة. قيمة فارغة/غائبة تعني "استخدم طابعة النظام الافتراضية" —
+// راجع تعليق `print_invoice_direct` في invoice_template.rs (Rust) للتفاصيل
+// الكاملة لما يحدث بهذا الاسم فعلياً.
+export const SETTINGS_KEY_PRINTER_NAME = 'invoice_printer_name';
+
 export interface TrustedDevice {
   device_id: string;
   activated_at: string;

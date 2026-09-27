@@ -135,12 +135,20 @@ pub fn run() {
         )
         // مهمة 2/2 من ميزة طباعة الفاتورة: يفتح ملف xlsx المولَّد بتطبيق
         // الجداول الافتراضي (Excel/LibreOffice Calc) من طرف الواجهة (JS) —
-        // راجع القرار المعماري رقم 2 و4 في توثيق المهمة (ممنوع أي أمر طباعة
-        // صامت/برمجي، الفتح فقط؛ المستخدم يطبع يدوياً من داخل ذلك التطبيق).
+        // هذا يبقى المسار الاحتياطي اليدوي فقط الآن (فشل الطباعة الصامتة).
+        // المسار الأساسي الجديد (مهمة 3/2، print_invoice_direct) لا يستخدم
+        // هذا الـ plugin إطلاقاً — يستدعي soffice مباشرة من Rust عبر
+        // std::process::Command بلا فتح أي نافذة، راجع الملاحظة المعمارية
+        // أعلى رأس invoice_template.rs.
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             invoice_template::upload_invoice_template,
             invoice_template::generate_invoice_file,
+            // مهمة 3/2 من ميزة طباعة الفاتورة: طباعة صامتة مباشرة عبر
+            // LibreOffice من سطر الأوامر (headless) — راجع الملاحظة
+            // المعمارية أعلى رأس invoice_template.rs.
+            invoice_template::print_invoice_direct,
+            invoice_template::list_system_printers,
             activation::verify_activation_code
         ])
         .setup(|app| {

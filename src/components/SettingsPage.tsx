@@ -1,7 +1,7 @@
-import { Upload, FileText, CheckCircle, XCircle, AlertTriangle, Clock } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, AlertTriangle, Clock, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { settingsService } from "../services/db";
+import { settingsService, SETTINGS_KEY_PRINTER_NAME } from "../services/db";
 
 // ============================================================================
 // مهمة 1/2 من ميزة طباعة الفاتورة: نظام الكلمات المفتاحية ونتيجة الفحص.
@@ -192,6 +192,52 @@ export function SettingsPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<TemplateUploadResult | null>(null);
 
+  // --- مهمة 3/2 من ميزة الطباعة: اختيار طابعة الفواتير للطباعة الصامتة
+  // المباشرة (راجع تعليق print_invoice_direct في invoice_template.rs). قيمة
+  // فارغة ("") تعني "طابعة النظام الافتراضية" — لا تُفرض أي طابعة تحديداً. ---
+  const [printers, setPrinters] = useState<string[]>([]);
+  const [printersLoading, setPrintersLoading] = useState(true);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>("");
+  const [savingPrinter, setSavingPrinter] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [names, saved] = await Promise.all([
+          invoke<string[]>("list_system_printers"),
+          settingsService.get(SETTINGS_KEY_PRINTER_NAME),
+        ]);
+        if (!cancelled) {
+          setPrinters(names);
+          setSelectedPrinter(saved ?? "");
+        }
+      } catch {
+        // فشل الاستعلام عن الطابعات لا يمنع استخدام الصفحة — يبقى الخيار
+        // على "طابعة النظام الافتراضية" فقط بلا قائمة.
+      } finally {
+        if (!cancelled) setPrintersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePrinterChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedPrinter(value);
+    setSavingPrinter(true);
+    try {
+      await settingsService.update(SETTINGS_KEY_PRINTER_NAME, value);
+      showToast(value === "" ? "تم اعتماد طابعة النظام الافتراضية ✓" : `تم اعتماد "${value}" لطباعة الفواتير ✓`);
+    } catch {
+      showToast("تعذّر حفظ اختيار الطابعة، يرجى المحاولة مجدداً", "error");
+    } finally {
+      setSavingPrinter(false);
+    }
+  };
+
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 3000);
@@ -324,6 +370,57 @@ export function SettingsPage() {
               <div>{uploadError}</div>
             </div>
           )}
+        </div>
+
+        {/* Card: طابعة الفواتير (مهمة 3/2 — طباعة صامتة مباشرة) */}
+        <div style={s.card}>
+          <div style={s.iconWrap("#EFF6FF")}>
+            <Printer size={26} color="#2563EB" />
+          </div>
+          <div style={s.cardTitle}>طابعة الفواتير</div>
+          <div style={s.cardDesc}>
+            عند الضغط على "طباعة" أو "حفظ وطباعة"، تُطبع الفاتورة مباشرة وبصمت على الطابعة المختارة هنا — بلا فتح أي
+            نافذة Excel أو LibreOffice. اترك الخيار على القيمة الافتراضية لاستخدام طابعة النظام الافتراضية.
+          </div>
+
+          <div style={s.templateStatusBox}>
+            {printersLoading ? (
+              "جاري البحث عن الطابعات المتصلة بالجهاز..."
+            ) : (
+              <>
+                <select
+                  value={selectedPrinter}
+                  onChange={handlePrinterChange}
+                  disabled={savingPrinter}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #CBD5E1",
+                    fontSize: "14px",
+                    fontFamily: "'Cairo', sans-serif",
+                    color: "#1E293B",
+                    backgroundColor: "white",
+                    cursor: savingPrinter ? "default" : "pointer",
+                  }}
+                >
+                  <option value="">طابعة النظام الافتراضية</option>
+                  {printers.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+
+                {printers.length === 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#92400E", marginTop: "10px" }}>
+                    <AlertTriangle size={14} />
+                    لم يتم العثور على أي طابعة مثبَّتة — سيُستخدَم إعداد طابعة النظام الافتراضية تلقائياً.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 

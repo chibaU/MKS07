@@ -32,10 +32,24 @@
 // الكاملة لمحرك الرسم المخصَّص، البحث عن الخطوط، والتشكيل اليدوي — أبسط بكثير
 // وأدق بكثير، بثمن وحيد: يتطلب وجود Excel أو تطبيق جداول بيانات متوافق
 // (كـLibreOffice Calc) مثبَّتاً ومرتبطاً بامتداد xlsx على جهاز المستخدم.
+//
+// **تحديث لاحق (مهمة 3/2) — يُلغي جزئياً "القرار المعماري رقم 2" أعلاه:**
+// بطلب صريح لاحق من صاحب المشروع، لم يعد فتح الملف يدوياً هو المسار الوحيد.
+// الشرط الفعلي المطلوب لم يكن "ممنوع أي طباعة صامتة" كمبدأ مطلق، بل تحديداً:
+// "لا تظهر نافذة LibreOffice/Excel نفسها" (أي نافذة أخرى، كحوار طباعة نظام
+// التشغيل، كانت ستكون مقبولة لو احتجناها). لذلك أُضيف مسار ثانٍ موازٍ
+// (`print_invoice_direct` + `run_soffice_headless_print` أسفل الملف): يملأ
+// نفس القالب بنفس منطق `fill_template` بلا أي تغيير (`build_invoice_xlsx`
+// تشترك بين المسارين)، ثم يستدعي `soffice --headless` من سطر الأوامر مباشرة
+// (لا `tauri-plugin-opener`، لا فتح أي تطبيق جداول مرئي إطلاقاً) ليطبع الملف
+// على الطابعة مباشرة ثم يُغلق نفسه. المسار القديم (`generate_invoice_file` +
+// فتح الملف من JS) بقي كما هو تماماً كخيار احتياطي يدوي عند فشل الطباعة
+// الصامتة (مثلاً LibreOffice غير مثبَّت أصلاً على جهاز المستخدم) — راجع
+// تعليق `print_invoice_direct` أسفل الملف للتفاصيل الكاملة.
 // ============================================================================
 
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -45,6 +59,12 @@ use umya_spreadsheet::{reader, writer, OrientationValues, Style, Worksheet};
 // راجع تعليق `preserve_rtl_view` أدناه لسبب الحاجة الحقيقية لهذا التحايل
 // المحدود على واجهة umya-spreadsheet العليا.
 use std::io::{Read, Write};
+
+// مهمة 3/2 — الطباعة الصامتة المباشرة (راجع القسم أسفل الملف): تشغيل
+// LibreOffice في وضع headless عبر سطر الأوامر، ومهلة أمان تمنع تعليق
+// التطبيق لو تعلَّقت عملية الطباعة نفسها.
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// اسم مجلد وملف القالب الثابتين داخل AppData. رفع قالب جديد صالح يستبدل هذا
 /// الملف بالكامل دائماً — لا أرشفة لنسخ سابقة (قرار معماري ملزم، راجع توثيق
@@ -866,10 +886,14 @@ pub struct GenerateInvoiceFileResult {
 /// رقم 7)، يملؤه ببيانات `data` (المُجمَّعة والمنسَّقة بالكامل من طرف JS
 /// مسبقاً — راجع تعليق `InvoicePrintInput` أعلاه)، يفرض A4 + تكرار صف
 /// الرأس، يحفظه كملف xlsx داخل مجلد التوليد بـAppData (بعد تطبيق سياسة
-/// التنظيف)، ويُعيد مساره للواجهة.
-#[tauri::command]
-pub fn generate_invoice_file(app: AppHandle, data: InvoicePrintInput) -> Result<GenerateInvoiceFileResult, String> {
-    let template_file = template_path(&app)?;
+/// التنظيف)، ويُعيد مساره الكامل على القرص.
+///
+/// **مشتركة بين مساري الطباعة الاثنين** (راجع الملاحظة المعمارية أعلى رأس
+/// الملف): `generate_invoice_file` (فتح يدوي) و`print_invoice_direct`
+/// (طباعة صامتة مباشرة، أسفل الملف) تستدعيان هذه الدالة نفسها بلا أي تكرار
+/// لمنطق التعبئة — الفرق الوحيد بينهما هو ما يحدث بملف xlsx الناتج بعد ذلك.
+fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathBuf, String> {
+    let template_file = template_path(app)?;
     if !template_file.exists() {
         return Err(
             "لم يتم رفع أي قالب فاتورة بعد — الرجاء رفع قالب من صفحة الإعدادات أولاً قبل الطباعة."
@@ -894,10 +918,10 @@ pub fn generate_invoice_file(app: AppHandle, data: InvoicePrintInput) -> Result<
     // المعماري رقم 7) — الخطأ الوحيد الممكن منها الآن هو فاتورة بلا بنود
     // إطلاقاً (شرط بيانات، لا شرط قالب). تُعيد رقم صف {{بند}} إن وُجد
     // فعلياً في القالب، لنستخدمه في apply_print_setup أدناه.
-    let band_row = fill_template(sheet, &data)?;
+    let band_row = fill_template(sheet, data)?;
     apply_print_setup(sheet, band_row);
 
-    let out_dir = generated_dir(&app)?;
+    let out_dir = generated_dir(app)?;
     cleanup_generated_dir(&out_dir)?;
 
     let safe_number: String = data
@@ -922,7 +946,248 @@ pub fn generate_invoice_file(app: AppHandle, data: InvoicePrintInput) -> Result<
         apply_rtl_view_to_output(&out_path);
     }
 
+    Ok(out_path)
+}
+
+/// أمر Tauri: يبني ملف xlsx المُعبَّأ (`build_invoice_xlsx`) ويُعيد مساره
+/// فقط — الواجهة (JS) هي من تفتحه بعدها عبر `tauri-plugin-opener`
+/// (`openPath`)، بتطبيق الجداول الافتراضي على جهاز المستخدم (Excel أو
+/// LibreOffice Calc)، والمستخدم يطبع يدوياً من هناك. يبقى هذا المسار خياراً
+/// احتياطياً صريحاً (فتح يدوي) — المسار الأساسي الآن هو `print_invoice_direct`
+/// أسفل الملف (طباعة صامتة، بلا فتح أي نافذة).
+#[tauri::command]
+pub fn generate_invoice_file(app: AppHandle, data: InvoicePrintInput) -> Result<GenerateInvoiceFileResult, String> {
+    let out_path = build_invoice_xlsx(&app, &data)?;
     Ok(GenerateInvoiceFileResult {
         path: out_path.to_string_lossy().to_string(),
     })
+}
+
+// ----------------------------------------------------------------------
+// مهمة 3/2 — طباعة صامتة مباشرة عبر LibreOffice من سطر الأوامر (headless)،
+// بلا فتح أي نافذة LibreOffice/Excel إطلاقاً. راجع الملاحظة المعمارية أعلى
+// رأس هذا الملف لسبب وجود هذا المسار الثاني بجانب `generate_invoice_file`.
+// ----------------------------------------------------------------------
+
+/// يمنع ظهور أي نافذة (حتى نافذة الطرفية السوداء المؤقتة) عند تشغيل عملية
+/// فرعية على Windows تحديداً — بلا أي أثر على الأنظمة الأخرى. ضروري هنا لأن
+/// `soffice --headless` بذاته لا يفتح أي نافذة أصلاً، لكن هذا احتياط إضافي
+/// يمنع حتى وميض نافذة طرفية عابرة قد تُنشئها بعض الأصداف (shells) عند بدء
+/// العملية الفرعية.
+fn suppress_window(cmd: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = cmd;
+    }
+}
+
+/// المسارات المُرشَّحة لتنفيذي LibreOffice، بالترتيب: أولاً مسارات التثبيت
+/// الافتراضية القياسية على Windows (بيئة تشغيل المستخدم النهائي الفعلية —
+/// راجع AI_CONTEXT.md القسم 2)، ثم اسم مجرَّد نترك لنظام التشغيل البحث عنه
+/// عبر PATH (يغطي أيضاً تثبيتاً غير قياسي، وبيئة التطوير على Linux/Ubuntu).
+fn soffice_candidates() -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        vec![
+            PathBuf::from(r"C:\Program Files\LibreOffice\program\soffice.exe"),
+            PathBuf::from(r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"),
+            PathBuf::from("soffice.exe"),
+        ]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![PathBuf::from("soffice"), PathBuf::from("libreoffice")]
+    }
+}
+
+/// يحوّل مساراً محلياً إلى صيغة `file://` المطلوبة لخيار `-env:UserInstallation`
+/// (راجع `run_soffice_headless_print` لسبب استخدامه). تحويل مبسَّط يكفي
+/// حاجتنا هنا (مسار داخل AppData نُنشئه نحن بأنفسنا، لا مسار حر من المستخدم):
+/// استبدال `\` بـ`/`، وترميز الفراغ (الحرف الوحيد الشائع فعلياً في مسارات
+/// مستخدمي Windows، مثل "Users\Ahmed Ali") كـ`%20`.
+fn to_file_uri(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/").replace(' ', "%20");
+    if let Some(stripped) = normalized.strip_prefix('/') {
+        format!("file:///{stripped}")
+    } else {
+        format!("file:///{normalized}")
+    }
+}
+
+/// يشغّل LibreOffice في وضع headless كامل (`--headless`) ليطبع ملف xlsx
+/// المُعبَّأ مباشرة على الطابعة المحدَّدة بالاسم (`printer_name`)، أو طابعة
+/// النظام الافتراضية إن لم يُحدَّد اسم (أو كان فارغاً)، ثم يُغلق نفسه تلقائياً
+/// عند الانتهاء. **لا تُفتَح أي نافذة LibreOffice أو Excel في أي مرحلة** —
+/// هذا هو الشرط الوحيد الذي طُلب الالتزام به صراحة؛ `--headless` يمنع ظهور
+/// أي واجهة رسومية للتطبيق نفسه من الأساس.
+///
+/// `-env:UserInstallation=<ملف تعريف مخصَّص داخل AppData>`: ضروري لتفادي أي
+/// تعارض مع نسخة LibreOffice قد تكون مفتوحة فعلاً على جهاز المستخدم لعمل آخر
+/// تماماً (كلاهما يتشارك افتراضياً نفس ملف تعريف المستخدم وقفله)؛ بفصل ملف
+/// التعريف، هذه الطباعة الصامتة لا يمكنها إطلاقاً أن تُظهر أو تتفاعل مع أي
+/// نافذة LibreOffice مفتوحة فعلاً لدى المستخدم لغرض آخر بالتوازي.
+///
+/// مهلة أمان (60 ثانية): تمنع تعليق التطبيق كاملاً لو تعلَّقت عملية الطباعة
+/// نفسها فعلياً (طابعة غير متصلة، طابور طباعة معطَّل، إلخ) — تُنهي العملية
+/// الفرعية قسراً وتُعيد رسالة عربية واضحة بدل الانتظار إلى الأبد.
+fn run_soffice_headless_print(
+    app: &AppHandle,
+    xlsx_path: &Path,
+    printer_name: Option<&str>,
+) -> Result<(), String> {
+    let profile_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("تعذّر تحديد مجلد بيانات التطبيق: {e}"))?
+        .join("lo_silent_print_profile");
+    let profile_uri = to_file_uri(&profile_dir);
+
+    let mut last_err: Option<String> = None;
+
+    for candidate in soffice_candidates() {
+        let mut cmd = Command::new(&candidate);
+        cmd.arg("--headless")
+            .arg("--invisible")
+            .arg("--norestore")
+            .arg("--nologo")
+            .arg("--nofirststartwizard")
+            .arg(format!("-env:UserInstallation={profile_uri}"));
+
+        match printer_name {
+            Some(name) if !name.trim().is_empty() => {
+                cmd.arg("--pt").arg(name.trim());
+            }
+            _ => {
+                cmd.arg("-p");
+            }
+        }
+        cmd.arg(xlsx_path);
+        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+        suppress_window(&mut cmd);
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // هذا المرشَّح تحديداً غير موجود على هذا الجهاز — جرّب التالي
+                // بدل الفشل فوراً (قد يكون التثبيت في مسار غير قياسي).
+                last_err = Some(format!(
+                    "لم يتم العثور على LibreOffice عبر '{}': {e}",
+                    candidate.display()
+                ));
+                continue;
+            }
+            Err(e) => return Err(format!("تعذّر تشغيل LibreOffice للطباعة: {e}")),
+        };
+
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        return Ok(());
+                    }
+                    let mut stderr_text = String::new();
+                    if let Some(mut err) = child.stderr.take() {
+                        let _ = err.read_to_string(&mut stderr_text);
+                    }
+                    return Err(format!(
+                        "فشلت عملية الطباعة الصامتة (رمز الخروج: {status}). {stderr_text}"
+                    ));
+                }
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        let _ = child.kill();
+                        return Err(
+                            "تجاوزت عملية الطباعة الصامتة المهلة الزمنية المسموحة (60 ثانية) — \
+                             تحقّق من أن الطابعة متصلة وجاهزة، أو من اسم الطابعة المُختار في الإعدادات."
+                                .to_string(),
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => return Err(format!("تعذّر متابعة حالة عملية الطباعة: {e}")),
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| {
+        "تعذّر العثور على LibreOffice على هذا الجهاز — تأكّد من تثبيته لتفعيل الطباعة المباشرة، \
+         أو استخدم خيار فتح الملف يدوياً بدلاً من ذلك."
+            .to_string()
+    }))
+}
+
+/// أمر Tauri الرئيسي للطباعة المباشرة: يبني نفس ملف xlsx المُعبَّأ تماماً
+/// (`build_invoice_xlsx`، بلا أي تكرار لمنطق `generate_invoice_file`)، ثم
+/// يرسله فوراً للطابعة عبر `run_soffice_headless_print` أعلاه. `printer_name`
+/// اختياري تماماً — قيمة `None` أو نص فارغ تعني "استخدم طابعة النظام
+/// الافتراضية"؛ الواجهة (JS) تمرّر هنا قيمة إعداد "طابعة الفواتير" المحفوظة
+/// من صفحة الإعدادات (`settingsService`)، إن وُجدت.
+///
+/// عند الفشل (LibreOffice غير مثبَّت، طابعة غير موجودة بهذا الاسم، إلخ):
+/// يُعيد رسالة خطأ عربية واضحة، ولا يفتح أي شيء بنفسه إطلاقاً — على الواجهة
+/// (JS) عرض الخطأ، ويُفضَّل أن توفّر أيضاً مساراً بديلاً (استدعاء
+/// `generate_invoice_file` ثم فتح الملف يدوياً) عند هذا الفشل تحديداً، لا أن
+/// تتوقف الطباعة كلياً.
+#[tauri::command]
+pub fn print_invoice_direct(
+    app: AppHandle,
+    data: InvoicePrintInput,
+    printer_name: Option<String>,
+) -> Result<(), String> {
+    let out_path = build_invoice_xlsx(&app, &data)?;
+    run_soffice_headless_print(&app, &out_path, printer_name.as_deref())
+}
+
+/// يُعيد أسماء الطابعات المثبَّتة فعلياً على الجهاز — تُستخدَم في صفحة
+/// الإعدادات لملء قائمة اختيار "طابعة الفواتير" (بدل كتابة الاسم يدوياً، وهو
+/// عرضة لأخطاء إملائية تُفشل `--pt` بصمت). فشل الاستعلام نفسه (PowerShell غير
+/// متاح، صلاحيات، إلخ) يُعيد قائمة فارغة بدل خطأ يوقف الصفحة بأكملها — غياب
+/// القائمة لا يمنع الطباعة أصلاً، المستخدم يبقى قادراً على ترك الخيار على
+/// "طابعة النظام الافتراضية".
+#[tauri::command]
+pub fn list_system_printers() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-Printer | Select-Object -ExpandProperty Name",
+        ]);
+        suppress_window(&mut cmd);
+        if let Ok(out) = cmd.output() {
+            if out.status.success() {
+                return String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // بيئة التطوير (Ubuntu/CUPS) فقط — للتحقق السريع أثناء البناء، لا
+        // تُستخدَم فعلياً لدى المستخدم النهائي (Windows، راجع AI_CONTEXT.md
+        // القسم 2).
+        if let Ok(out) = Command::new("lpstat").arg("-a").output() {
+            if out.status.success() {
+                return String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter_map(|l| l.split_whitespace().next())
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
 }

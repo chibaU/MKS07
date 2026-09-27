@@ -24,11 +24,25 @@
 // إعادة تنفيذه يدوياً). استُبدل بالكامل بهذا المسار: تعبئة القالب فقط، ثم
 // فتح ملف xlsx الناتج بتطبيق الجداول الافتراضي (Excel أو LibreOffice Calc)
 // — فيُطبَع من هناك يدوياً بمحرك عرض حقيقي يطبّق كل شيء بدقة تامة.
+//
+// **قرار مقصود (٣) — تحديث لاحق يُلغي جزئياً القرار رقم ٢ أعلاه:** بطلب
+// صريح لاحق من صاحب المشروع، الشرط الفعلي لم يكن "ممنوع أي طباعة صامتة"
+// كمبدأ مطلق، بل تحديداً: **لا تظهر نافذة LibreOffice أو Excel نفسها** (أي
+// نافذة أخرى، كحوار طباعة نظام التشغيل، كانت لتكون مقبولة لو احتجناها).
+// `printInvoice` أدناه الآن تطبع مباشرة وصامتة عبر أمر Rust جديد
+// (`print_invoice_direct`، راجع الملاحظة المعمارية في invoice_template.rs)
+// يشغّل LibreOffice في وضع `--headless` من سطر الأوامر — بلا فتح أي تطبيق
+// جداول مرئي إطلاقاً، وبلا حتى حوار طباعة (طباعة صامتة كاملة على الطابعة
+// المختارة في الإعدادات، أو طابعة النظام الافتراضية).
+// **مسار احتياطي متعمَّد:** لو فشلت الطباعة الصامتة (LibreOffice غير مثبَّت
+// على جهاز المستخدم، طابعة غير موجودة بهذا الاسم، إلخ)، نرجع تلقائياً للمسار
+// القديم (توليد الملف ثم فتحه بتطبيق الجداول الافتراضي عبر `openPath`) بدل
+// إفشال الطباعة بالكامل بصمت — مع رسالة توضيحية للمستخدم عبر الخطأ المُلقى.
 // ============================================================================
 
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { invoiceService, type InvoiceFullDetails } from "./db";
+import { invoiceService, type InvoiceFullDetails, settingsService, SETTINGS_KEY_PRINTER_NAME } from "./db";
 import { round2, formatMoney } from "../components/InvoiceShared";
 
 interface InvoiceLineItemPayload {
@@ -94,14 +108,18 @@ function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
   };
 }
 
-/// يجلب بيانات الفاتورة الكاملة والموثوقة، يملأ القالب عبر أمر Rust، ثم يفتح
-/// ملف xlsx الناتج بتطبيق الجداول الافتراضي على الجهاز (Excel أو LibreOffice
-/// Calc) عبر tauri-plugin-opener — **لا طباعة صامتة أو برمجية إطلاقاً هنا**،
-/// فقط فتح الملف؛ المستخدم من يضغط طباعة يدوياً من داخل ذلك التطبيق.
+/// يجلب بيانات الفاتورة الكاملة والموثوقة، ثم يطبعها **مباشرة وصامتاً**، بلا
+/// فتح أي نافذة LibreOffice/Excel إطلاقاً (القرار المقصود رقم ٣ أعلى الملف):
+/// يملأ القالب عبر أمر Rust (نفس منطق `fill_template` المستخدَم سابقاً بلا
+/// تغيير)، ثم يستدعي `soffice --headless` من سطر الأوامر ليرسل الملف مباشرة
+/// للطابعة المحفوظة في الإعدادات (أو طابعة النظام الافتراضية).
 ///
-/// يُلقي (throw) رسالة خطأ عربية واضحة عند الفشل (قالب مفقود/فاسد، فاتورة
-/// غير موجودة، إلخ) — على المستدعي (المكوّن) عرضها للمستخدم بطريقته المعتادة
-/// (alert/toast)، بدل فشل صامت.
+/// عند فشل الطباعة الصامتة تحديداً (LibreOffice غير مثبَّت، اسم طابعة غير
+/// صحيح، إلخ) — **مسار احتياطي تلقائي**: يفتح الملف بتطبيق الجداول
+/// الافتراضي (Excel/LibreOffice Calc) كما كان يحدث سابقاً، ليطبعه المستخدم
+/// يدوياً، بدل إفشال العملية بالكامل. لا يزال يُلقي (throw) خطأً عربياً
+/// واضحاً في حال فشل حتى بناء الملف نفسه (قالب مفقود/فاسد، فاتورة بلا بنود،
+/// إلخ) — على المستدعي (المكوّن) عرضه للمستخدم بطريقته المعتادة (alert/toast).
 export async function printInvoice(invoiceId: number): Promise<void> {
   const full = await invoiceService.getInvoiceFullDetails(invoiceId);
   if (!full) {
@@ -113,9 +131,35 @@ export async function printInvoice(invoiceId: number): Promise<void> {
 
   const payload = buildPayload(full);
 
-  const result = await invoke<GenerateInvoiceFileResult>("generate_invoice_file", {
-    data: payload,
-  });
+  const printerName = (await settingsService.get(SETTINGS_KEY_PRINTER_NAME)) ?? "";
 
-  await openPath(result.path);
+  try {
+    await invoke("print_invoice_direct", {
+      data: payload,
+      printerName: printerName.trim() === "" ? null : printerName.trim(),
+    });
+  } catch (directPrintError) {
+    // مسار احتياطي: نفس المنطق القديم بالضبط (توليد الملف ثم فتحه). نبني
+    // الملف من جديد بدل إعادة استخدام مسار قديم محتمل حُذف أصلاً عبر سياسة
+    // التنظيف (cleanup_generated_dir) — استدعاء رخيص، لا حاجة للتوفير هنا.
+    let openedManually = false;
+    try {
+      const result = await invoke<GenerateInvoiceFileResult>("generate_invoice_file", {
+        data: payload,
+      });
+      await openPath(result.path);
+      openedManually = true;
+    } catch {
+      // تجاهل: الخطأ الأصلي (فشل الطباعة الصامتة) أهم وأوضح للمستخدم أدناه.
+    }
+
+    const directMessage =
+      directPrintError instanceof Error ? directPrintError.message : String(directPrintError);
+    if (openedManually) {
+      throw new Error(
+        `تعذّرت الطباعة المباشرة الصامتة (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
+      );
+    }
+    throw new Error(directMessage || "تعذّرت طباعة الفاتورة.");
+  }
 }
