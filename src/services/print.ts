@@ -78,7 +78,7 @@ function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
     // جاهزة للعرض؛ Rust يكتبها في الخلايا حرفياً (set_value_string) بلا تفسير.
     price: formatMoney(d.price),
     subtotal: formatMoney(d.subtotal), // مقرَّب مسبقاً عند الحفظ (round2) — راجع HomePage.tsx
-    boxes: d.boxes.map((b) => `${b.box_name} ×${b.box_count}`).join("، "),
+    boxes: d.boxes.map((b) => `${b.box_name} ×${b.box_count}`).join("\n"),
   }));
 
   return {

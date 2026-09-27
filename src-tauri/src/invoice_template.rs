@@ -474,6 +474,15 @@ fn fill_template(sheet: &mut Worksheet, data: &InvoicePrintInput) -> Result<Opti
 
     let (row_template, row_merges) = capture_row_template(sheet, band_row);
 
+//
+let base_row_height = sheet
+    .get_row_dimension(&band_row)
+    .map(|row| *row.get_height())
+    .filter(|height| *height > 0.0)
+    .unwrap_or(15.0);
+
+    //
+
     if n > 1 {
         sheet.insert_new_row(&(band_row + 1), &(n - 1));
     }
@@ -511,14 +520,33 @@ fn fill_template(sheet: &mut Worksheet, data: &InvoicePrintInput) -> Result<Opti
             };
 
             if target_row != band_row {
-                sheet.set_style((tmpl_cell.col, target_row), tmpl_cell.style.clone());
-            }
-            sheet
-                .get_cell_mut((tmpl_cell.col, target_row))
-                // set_value_string لنفس السبب أعلاه — راجع تعليق التعبئة
-                // أحادية القيمة قليلاً فوق هذا الموضع.
-                .set_value_string(new_text);
+      sheet.set_style((tmpl_cell.col, target_row), tmpl_cell.style.clone());
         }
+
+       if tmpl_cell.text.contains(ROW_OPTIONAL_KEYWORD) && new_text.contains('\n') {
+         sheet
+        .get_cell_mut((tmpl_cell.col, target_row))
+        .get_style_mut()
+        .get_alignment_mut()
+        .set_wrap_text(true);
+           }
+
+sheet
+    .get_cell_mut((tmpl_cell.col, target_row))
+    .set_value_string(new_text);
+        }
+
+
+        let max_box_lines = item
+    .boxes
+    .split('\n')
+    .count();
+
+if max_box_lines > 1 {
+    sheet
+        .get_row_dimension_mut(&target_row)
+        .set_height(base_row_height * max_box_lines as f64);
+}
 
         if target_row != band_row {
             for m in &row_merges {
