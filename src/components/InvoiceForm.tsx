@@ -141,6 +141,20 @@ export function InvoiceForm({
     [draft.rows],
   );
 
+  // إجمالي الوزن الصافي وعدد الصناديق الكلي — **نفس منطق buildPayload في print.ts
+  // تماماً** (الوزن: round2 مرة واحدة على المجموع الخام، الصناديق: مجموع boxCount
+  // عبر كل البنود) ليتطابق المعروض على الشاشة مع ما يُطبَع في {{الوزن_الكلي}}
+  // و{{عدد_الصناديق_الكلي}}. عرض فقط — لا يُحفَظ في القاعدة ولا في الـ Draft.
+  const totals = useMemo(() => {
+    let weight = 0;
+    let boxes = 0;
+    for (const r of draft.rows) {
+      weight += r.weight;
+      for (const bs of r.boxesSnapshot ?? []) boxes += bs.boxCount;
+    }
+    return { weight: round2(weight), boxes };
+  }, [draft.rows]);
+
   // ─── تحديد بنود الجدول (Select/Highlight) — ميزة عرض فقط، لا تُرسَل للقاعدة ولا للـ Draft ──
   // نقرة عادية: تحديد هذا البند فقط (أو إلغاء تحديده إن كان محدَّداً وحيداً بالفعل).
   // Ctrl/Cmd+نقرة: تبديل هذا البند داخل التحديد الحالي دون التأثير على البقية (بنود متفرقة).
@@ -524,22 +538,47 @@ export function InvoiceForm({
                   borderTop: "2px solid #BFDBFE",
                 }}
               >
-                <td
-                  style={{ ...c.td, fontWeight: 700, color: "#1E40AF" }}
-                  colSpan={5}
-                >
-                  الإجمالي الكلي
-                </td>
-                <td
-                  style={{
-                    ...c.td,
-                    fontWeight: 800,
-                    color: "#1E40AF",
-                    fontSize: "18px",
-                  }}
-                  colSpan={2}
-                >
-                  {formatMoney(grandTotal)} دج
+                {/* صف الإجماليات: الوزن الصافي + عدد الصناديق (يمين) ثم المبلغ الكلي
+                    (يسار، في مكانه المعتاد). خلية واحدة بعرض الجدول كله كي لا ترتبط
+                    الإجماليات بأعمدة الجدول المتغيّرة العرض. */}
+                <td style={{ ...c.td, color: "#1E40AF" }} colSpan={7}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "12px 32px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "12px 32px",
+                      }}
+                    >
+                      <span>
+                        <span style={{ fontWeight: 700 }}>إجمالي الوزن الصافي: </span>
+                        <span style={{ fontWeight: 800, fontSize: "18px" }}>
+                          {totals.weight.toFixed(2)} كغ
+                        </span>
+                      </span>
+                      <span>
+                        <span style={{ fontWeight: 700 }}>عدد الصناديق الكلي: </span>
+                        <span style={{ fontWeight: 800, fontSize: "18px" }}>
+                          {totals.boxes}
+                        </span>
+                      </span>
+                    </div>
+                    <span>
+                      <span style={{ fontWeight: 700 }}>الإجمالي الكلي: </span>
+                      <span style={{ fontWeight: 800, fontSize: "18px" }}>
+                        {formatMoney(grandTotal)} دج
+                      </span>
+                    </span>
+                  </div>
                 </td>
               </tr>
             )}
