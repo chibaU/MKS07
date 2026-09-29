@@ -13,6 +13,10 @@ import { InvoiceLineEntry } from "./InvoiceLineEntry";
 // الثابتة في القسم 2: invoiceId !== null ⟺ rows.length > 0). الأنماط ومكوّن
 // الـ Autocomplete مستوردة الآن من InvoiceShared.tsx بدل نسخة مكرَّرة محلية.
 
+// عدد شارات "الصناديق حسب النوع" الظاهرة قبل الطيّ التلقائي في صف الإجماليات؛
+// ما زاد عنه يُخفى خلف زر "+N أخرى" لتبقى الإجماليات قريبة من أسفل الجدول.
+const BOX_TYPES_COLLAPSED_LIMIT = 8;
+
 interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
@@ -40,12 +44,6 @@ export function InvoiceForm({
         labelLower: m.name.toLowerCase(),
       })),
     [merchants],
-  );
-
-  // Map للصناديق — لعرض أسماء صناديق البنود (المحفوظة أو الجديدة) في الجدول
-  const boxMap = useMemo(
-    () => new Map(draft.boxes.map((b) => [b.id, b])),
-    [draft.boxes],
   );
 
   const handleMerchantChange = useCallback(
@@ -145,14 +143,35 @@ export function InvoiceForm({
   // تماماً** (الوزن: round2 مرة واحدة على المجموع الخام، الصناديق: مجموع boxCount
   // عبر كل البنود) ليتطابق المعروض على الشاشة مع ما يُطبَع في {{الوزن_الكلي}}
   // و{{عدد_الصناديق_الكلي}}. عرض فقط — لا يُحفَظ في القاعدة ولا في الـ Draft.
+  //
+  // boxTypes: تفصيل عدد الصناديق لكل نوع عبر كل البنود (تجميع بمعرّف الصندوق).
+  // الاسم يأتي من لقطة البند نفسها (bs.name) لا من قائمة الصناديق النشطة، فتظهر
+  // الصناديق المخفية (is_visible = 0) بأسمائها في الفواتير القديمة. مجموع أعداد
+  // boxTypes يساوي totals.boxes دائماً. عرض فقط — لا يدخل في الطباعة ولا القاعدة.
   const totals = useMemo(() => {
     let weight = 0;
     let boxes = 0;
+    const perType = new Map<number, { id: number; name: string; count: number }>();
     for (const r of draft.rows) {
       weight += r.weight;
-      for (const bs of r.boxesSnapshot ?? []) boxes += bs.boxCount;
+      for (const bs of r.boxesSnapshot ?? []) {
+        boxes += bs.boxCount;
+        const existing = perType.get(bs.id);
+        if (existing) {
+          existing.count += bs.boxCount;
+        } else {
+          perType.set(bs.id, {
+            id: bs.id,
+            name: bs.name ?? `#${bs.id}`,
+            count: bs.boxCount,
+          });
+        }
+      }
     }
-    return { weight: round2(weight), boxes };
+    const boxTypes = [...perType.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, "ar"),
+    );
+    return { weight: round2(weight), boxes, boxTypes };
   }, [draft.rows]);
 
   // ─── تحديد بنود الجدول (Select/Highlight) — ميزة عرض فقط، لا تُرسَل للقاعدة ولا للـ Draft ──
@@ -162,6 +181,15 @@ export function InvoiceForm({
   // التحديد يُحفَظ بمعرّفات البنود الحقيقية (row.id من القاعدة) لا بالفهرس، فيبقى
   // صالحاً حتى لو تغيّر ترتيب الصفوف؛ ويُنظَّف تلقائياً أدناه عند حذف بند أو عند
   // تبديل التبويب/الفاتورة المعروضة (معرّفات البنود فريدة عالمياً في القاعدة).
+  // حالة توسيع قائمة الصناديق حسب النوع — تُحفَظ بمعرّف المسودة، فتعود مطويّة
+  // تلقائياً عند التبديل لتبويب آخر بلا الحاجة إلى effect. عرض فقط.
+  const [expandedBoxTypesFor, setExpandedBoxTypesFor] = useState<string | null>(null);
+  const boxTypesExpanded = expandedBoxTypesFor === draft.id;
+  const hiddenBoxTypesCount = Math.max(0, totals.boxTypes.length - BOX_TYPES_COLLAPSED_LIMIT);
+  const visibleBoxTypes = boxTypesExpanded
+    ? totals.boxTypes
+    : totals.boxTypes.slice(0, BOX_TYPES_COLLAPSED_LIMIT);
+
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [anchorRowId, setAnchorRowId] = useState<number | null>(null);
 
@@ -426,7 +454,6 @@ export function InvoiceForm({
                         style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}
                       >
                         {row.boxesSnapshot.map((bs, idx) => {
-                          const boxDef = boxMap.get(bs.id);
                           return (
                             <span
                               key={idx}
@@ -439,7 +466,7 @@ export function InvoiceForm({
                                 fontWeight: 500,
                               }}
                             >
-                              {boxDef?.name ?? `#${bs.id}`} ×{bs.boxCount}
+                              {bs.name ?? `#${bs.id}`} ×{bs.boxCount}
                             </span>
                           );
                         })}
@@ -579,6 +606,60 @@ export function InvoiceForm({
                       </span>
                     </span>
                   </div>
+
+                  {/* تفصيل الصناديق حسب النوع — نفس شكل شارات الصناديق داخل البنود
+                      (الاسم ×العدد)، بخلفية بيضاء لتتضح فوق خلفية صف الإجماليات */}
+                  {totals.boxTypes.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "8px",
+                        marginTop: "12px",
+                        paddingTop: "12px",
+                        borderTop: "1px dashed #BFDBFE",
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>الصناديق حسب النوع:</span>
+                      {visibleBoxTypes.map((bt) => (
+                        <span
+                          key={bt.id}
+                          style={{
+                            backgroundColor: "white",
+                            border: "1px solid #BFDBFE",
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#1E40AF",
+                          }}
+                        >
+                          {bt.name} ×{bt.count}
+                        </span>
+                      ))}
+                      {hiddenBoxTypesCount > 0 && (
+                        <button
+                          onClick={() =>
+                            setExpandedBoxTypesFor(boxTypesExpanded ? null : draft.id)
+                          }
+                          style={{
+                            backgroundColor: "transparent",
+                            border: "1px dashed #93C5FD",
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            color: "#1E40AF",
+                            cursor: "pointer",
+                            fontFamily: "'Cairo', sans-serif",
+                          }}
+                        >
+                          {boxTypesExpanded ? "إخفاء" : `+${hiddenBoxTypesCount} أخرى`}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </td>
               </tr>
             )}

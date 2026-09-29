@@ -212,7 +212,7 @@ export function InvoiceLineEntry({
       price: Number(entry.priceInput) || 0, // أرقام فقط (دنانير كاملة) — انظر EntryState
       boxesSnapshot: entry.boxes
         .filter((b) => b.countInput > 0)
-        .map((b) => ({ id: b.id, boxCount: b.countInput })),
+        .map((b) => ({ id: b.id, boxCount: b.countInput, name: b.name })),
     };
 
     try {

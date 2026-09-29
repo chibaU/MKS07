@@ -43,6 +43,7 @@ export function draftFromInvoice(
       (box): DraftRowBox => ({
         id: box.box_id,
         boxCount: box.box_count,
+        name: box.box_name, // من JOIN القاعدة — يشمل الصناديق المخفية أيضاً
       })
     ),
   }));
