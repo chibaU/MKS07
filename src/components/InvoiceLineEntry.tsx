@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useCallback, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Minus } from "lucide-react";
 import type { DraftBox, DraftRow } from "./invoice";
 import { StaleReferenceError, type Product } from "../services/db";
 import {
@@ -54,6 +54,23 @@ export function emptyEntry(
     })),
   };
 }
+
+// زرا العدّاد (−/+) في بطاقة الصندوق
+const stepBtn = (disabled: boolean) =>
+  ({
+    width: "34px",
+    height: "34px",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "8px",
+    border: "1.5px solid #CBD5E1",
+    backgroundColor: "#FFFFFF",
+    color: disabled ? "#CBD5E1" : "#0F766E",
+    cursor: disabled ? "not-allowed" : "pointer",
+    padding: 0,
+  }) as const;
 
 interface InvoiceLineEntryProps {
   entry: EntryState;
@@ -171,6 +188,16 @@ export function InvoiceLineEntry({
     [entry.boxes],
   );
 
+  const totalBoxCount = useMemo(
+    () => entry.boxes.reduce((sum, b) => sum + b.countInput, 0),
+    [entry.boxes],
+  );
+
+  const resetBoxes = useCallback(
+    () => handleFieldChange({ boxes: entry.boxes.map((b) => ({ ...b, countInput: 0 })) }),
+    [entry.boxes, handleFieldChange],
+  );
+
   const boxesExceedScale = scaleWeightEntered && totalEmptyWeight > scaleWeight;
 
   const netWeight = useMemo(
@@ -246,147 +273,180 @@ export function InvoiceLineEntry({
     <div>
       <div style={{ display: "flex", gap: "24px" }}>
         {/* عمود الصناديق */}
+        <style>{`
+          .le-box-input:focus { outline: 2px solid #2563EB; outline-offset: 1px; }
+          .le-box-btn:focus-visible { outline: 2px solid #2563EB; outline-offset: 1px; }
+          .le-box-btn:hover:not(:disabled) { background-color: #CCFBF1; }
+          .le-box-btn:active:not(:disabled) { background-color: #99F6E4; }
+          .le-box-card { transition: background-color .12s, border-color .12s; }
+          @media (prefers-reduced-motion: reduce) { .le-box-card { transition: none; } }
+        `}</style>
         <div
           style={{
             width: "360px",
             flexShrink: 0,
-            backgroundColor: "#F0FDFA",
-            borderRadius: "10px",
-            border: "2px solid #5EEAD4",
-            padding: "16px",
-          }}
-        >
-        
-          <div
-  style={{
-    maxHeight: "300px",
-    overflowY: "auto",
-    borderRadius: "9px",
-    border: "1px solid #CBD5E1",
-    backgroundColor: "#F1F5F9",
-    padding: "8px",
-  }}
->
-  {entry.boxes.length > 0 ? (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-        gap: "8px",
-      }}
-    >
-      {entry.boxes.map((box) => (
-        <div
-          key={box.id}
-          style={{
-            minWidth: 0,
-            minHeight: "62px",
-            padding: "8px",
-            border: "1px solid #CBD5E1",
-            borderRadius: "8px",
-            backgroundColor: "#FFFFFF",
-            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+            backgroundColor: "#F8FAFC",
+            borderRadius: "12px",
+            border: "1px solid #E2E8F0",
+            padding: "14px",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "space-between",
-            gap: "6px",
+            gap: "12px",
           }}
         >
-          {/* اسم الصندوق */}
-          <div
-            style={{
-              minWidth: 0,
-            }}
-            title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
-          >
-            <div
-              style={{
-                color: "#1E293B",
-                fontSize: "14px",
-                fontWeight: 700,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                lineHeight: "18px",
-              }}
-            >
-              {box.name}
-            </div>
-
-            <div
-              style={{
-                color: "#64748B",
-                fontSize: "12px",
-                fontWeight: 500,
-                lineHeight: "14px",
-              }}
-            >
-              فارغ: {box.emptyWeight} كغ
-            </div>
-            
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", minHeight: "24px" }}>
+            <span style={{ color: "#0F172A", fontSize: "15px", fontWeight: 700 }}>الصناديق</span>
+            {totalBoxCount > 0 && (
+              <button
+                type="button"
+                onClick={resetBoxes}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "#B91C1C",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "'Cairo', sans-serif",
+                  padding: "2px 6px",
+                }}
+              >
+                تصفير الكل
+              </button>
+            )}
           </div>
 
-          {/* العدد */}
-          <input
-            type="number"
-            value={box.countInput || ""}
-            placeholder="0"
-            onChange={(e) => updateBox(box.id, e.target.value)}
-            min="0"
-            step="1"
-            style={{
-              width: "100%",
-              height: "28px",
-              boxSizing: "border-box",
-              padding: "2px 6px",
-              borderRadius: "6px",
-              border: "1.5px solid #0F766E",
-              backgroundColor: "#F0FDFA",
-              color: "#0F172A",
-              fontSize: "13px",
-              fontWeight: 700,
-              textAlign: "center",
-              fontFamily: "'Cairo', sans-serif",
-              outline: "none",
-            }}
-          />
-        </div>
-      ))}
-    </div>
-  ) : (
-    <div
-      style={{
-        padding: "16px",
-        textAlign: "center",
-        color: "#475569",
-        fontSize: "14px",
-      }}
-    >
-      لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
-    </div>
-  )}
-</div>
+          <div style={{ maxHeight: "340px", overflowY: "auto", margin: "-2px", padding: "2px" }}>
+            {entry.boxes.length > 0 ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
+                {entry.boxes.map((box) => {
+                  const active = box.countInput > 0;
+                  return (
+                    <div
+                      key={box.id}
+                      className="le-box-card"
+                      title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
+                      style={{
+                        minWidth: 0,
+                        padding: "10px",
+                        borderRadius: "10px",
+                        border: active ? "1.5px solid #0F766E" : "1.5px solid #E2E8F0",
+                        backgroundColor: active ? "#F0FDFA" : "#FFFFFF",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            color: active ? "#134E4A" : "#1E293B",
+                            fontSize: "16px",
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            lineHeight: "20px",
+                          }}
+                        >
+                          {box.name}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "6px",
+                            fontSize: "12px",
+                            lineHeight: "16px",
+                            color: "#64748B",
+                            fontWeight: 500,
+                          }}
+                        >
+                          <span>فارغ: {box.emptyWeight} كغ</span>
+                          {active && (
+                            <span style={{ color: "#0F766E", fontWeight: 700 }}>
+                              {round2(box.countInput * box.emptyWeight).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* العدّاد: ltr ليبقى [−] [رقم] [+] بترتيبه المألوف داخل صفحة RTL */}
+                      <div style={{ display: "flex", gap: "6px", direction: "ltr" }}>
+                        <button
+                          type="button"
+                          className="le-box-btn"
+                          tabIndex={-1}
+                          aria-label={`إنقاص عدد ${box.name}`}
+                          disabled={!active}
+                          onClick={() => updateBox(box.id, String(box.countInput - 1))}
+                          style={stepBtn(!active)}
+                        >
+                          <Minus size={16} />
+                        </button>
+                        <input
+                          className="le-box-input"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          aria-label={`عدد ${box.name}`}
+                          value={box.countInput || ""}
+                          placeholder="0"
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateBox(box.id, e.target.value.replace(/\D/g, ""))}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            height: "34px",
+                            boxSizing: "border-box",
+                            borderRadius: "8px",
+                            border: active ? "1.5px solid #0F766E" : "1.5px solid #CBD5E1",
+                            backgroundColor: "#FFFFFF",
+                            color: "#0F172A",
+                            fontSize: "16px",
+                            fontWeight: 700,
+                            textAlign: "center",
+                            fontFamily: "'Cairo', sans-serif",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="le-box-btn"
+                          tabIndex={-1}
+                          aria-label={`زيادة عدد ${box.name}`}
+                          onClick={() => updateBox(box.id, String(box.countInput + 1))}
+                          style={stepBtn(false)}
+                        >
+                          <Plus size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ padding: "16px", textAlign: "center", color: "#475569", fontSize: "14px" }}>
+                لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
+              </div>
+            )}
+          </div>
 
           <div
             style={{
-              marginTop: "12px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              padding: "10px 14px",
-              backgroundColor: "#EFF6FF",
-              borderRadius: "8px",
-              border: "2px solid #BFDBFE",
+              padding: "12px 14px",
+              backgroundColor: "#0F766E",
+              borderRadius: "10px",
+              color: "#FFFFFF",
             }}
           >
-            <span
-              style={{ color: "#1D4ED8", fontSize: "14px", fontWeight: 700 }}
-            >
-              وزن الصناديق الفارغة
-            </span>
-            <span
-              style={{ color: "#1D4ED8", fontSize: "16px", fontWeight: 700 }}
-            >
+            <div>
+              <div style={{ fontSize: "14px", fontWeight: 700 }}>وزن الصناديق الفارغة</div>
+              <div style={{ fontSize: "12px", color: "#CCFBF1" }}>{totalBoxCount} صندوق</div>
+            </div>
+            <span style={{ fontSize: "20px", fontWeight: 700, direction: "ltr" }}>
               {round2(totalEmptyWeight).toFixed(2)} كغ
             </span>
           </div>
