@@ -118,12 +118,18 @@ export default function App() {
   // نفس النمط، لإكمال تحديث قائمة الصناديق النشطة فوراً بعد أي إضافة/تعديل/
   // حذف/تبديل رؤية من BoxesPage — getVisible() نفسها المستخدمة في التحميل
   // الأولي (القسم 6.4 من AI_CONTEXT.md: النشطة فقط هي ما يظهر للوزّان).
-  const refreshBoxes = useCallback(async () => {
+  // تُرجع القائمة المحدَّثة نفسها (أو null عند الفشل) كي يستطيع المستدعي — مثل
+  // نسخ بند مع صندوق مخفي في InvoiceForm.tsx — قراءتها فوراً دون انتظار إعادة
+  // رسم App. المستدعون الذين لا يحتاجون القيمة (BoxesPage) يتجاهلونها ببساطة.
+  // لا تمسّ هذه الدالة drafts إطلاقاً: التبويبات المفتوحة تحتفظ بلقطاتها.
+  const refreshBoxes = useCallback(async (): Promise<Box[] | null> => {
     try {
       const data = await boxService.getVisible();
       setRealBoxes(data);
+      return data;
     } catch (err) {
       console.error("خطأ أثناء تحديث الصناديق:", err);
+      return null;
     }
   }, []);
 
@@ -197,6 +203,7 @@ export default function App() {
               setActiveId={setActiveId}
               merchants={merchants}
               products={products}
+              onRefreshBoxes={refreshBoxes}
             />
           )}
         </div>

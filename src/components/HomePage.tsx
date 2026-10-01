@@ -17,6 +17,9 @@ interface HomePageProps {
   setActiveId:(id: string) => void;
   merchants:  Merchant[];
   products:   Product[];
+  // تحديث قائمة الصناديق النشطة في App وإرجاع القائمة المحدَّثة (تُستخدَم في
+  // نسخ بند يحتوي صندوقاً مخفياً — InvoiceForm.tsx).
+  onRefreshBoxes: () => Promise<Box[] | null>;
 }
 
 const MemoInvoiceForm = memo(InvoiceForm);
@@ -29,6 +32,7 @@ export function HomePage({
   setActiveId,
   merchants,
   products,
+  onRefreshBoxes,
 }: HomePageProps) {
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
 
@@ -352,6 +356,7 @@ export function HomePage({
         onCloseInvoice={onCloseInvoice}
         merchants={merchants}
         products={products}
+        onRefreshBoxes={onRefreshBoxes}
       />
 
       {confirmCloseId && (

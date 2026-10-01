@@ -624,6 +624,25 @@ export const boxService = {
     );
   },
 
+  // إظهار صناديق مخفية (is_visible: 0 → 1) دون المساس باسمها أو وزنها — تُستخدَم
+  // من ميزة "نسخ بند إلى نموذج الإدخال" (InvoiceForm.tsx) لإرجاع الصناديق
+  // المخفية المستخدَمة في البند المنسوخ إلى قائمة الصناديق النشطة. الشرط
+  // `AND is_visible = 0` يجعل العملية no-op فعلية للصناديق الظاهرة أصلاً، فلا
+  // يُكتَب شيء إلا لما يلزم إظهاره فعلاً. تُعيد عدد الصفوف التي تغيّرت.
+  async revealBoxes(ids: number[]): Promise<number> {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return 0;
+
+    const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(', ');
+    const result = await runExclusive((raw) =>
+      raw.execute(
+        `UPDATE boxes SET is_visible = 1 WHERE id IN (${placeholders}) AND is_visible = 0`,
+        uniqueIds
+      )
+    );
+    return result.rowsAffected;
+  },
+
   async delete(id: number): Promise<QueryResult> {
     return await runExclusive((raw) =>
       raw.execute('DELETE FROM boxes WHERE id = $1', [id])
