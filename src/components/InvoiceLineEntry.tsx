@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useCallback, useState } from "react";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Package } from "lucide-react";
 import type { DraftBox, DraftRow } from "./invoice";
 import { StaleReferenceError, type Product } from "../services/db";
 import {
@@ -54,23 +54,6 @@ export function emptyEntry(
     })),
   };
 }
-
-// زرا العدّاد (−/+) في بطاقة الصندوق
-const stepBtn = (disabled: boolean) =>
-  ({
-    width: "34px",
-    height: "34px",
-    flexShrink: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "8px",
-    border: "1.5px solid #CBD5E1",
-    backgroundColor: "#FFFFFF",
-    color: disabled ? "#CBD5E1" : "#0F766E",
-    cursor: disabled ? "not-allowed" : "pointer",
-    padding: 0,
-  }) as const;
 
 interface InvoiceLineEntryProps {
   entry: EntryState;
@@ -275,9 +258,6 @@ export function InvoiceLineEntry({
         {/* عمود الصناديق */}
         <style>{`
           .le-box-input:focus { outline: 2px solid #2563EB; outline-offset: 1px; }
-          .le-box-btn:focus-visible { outline: 2px solid #2563EB; outline-offset: 1px; }
-          .le-box-btn:hover:not(:disabled) { background-color: #CCFBF1; }
-          .le-box-btn:active:not(:disabled) { background-color: #99F6E4; }
           .le-box-card { transition: background-color .12s, border-color .12s; }
           @media (prefers-reduced-motion: reduce) { .le-box-card { transition: none; } }
         `}</style>
@@ -338,18 +318,29 @@ export function InvoiceLineEntry({
                       }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div
-                          style={{
-                            color: active ? "#134E4A" : "#1E293B",
-                            fontSize: "16px",
-                            fontWeight: 700,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            lineHeight: "20px",
-                          }}
-                        >
-                          {box.name}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "7px" }}>
+                          <Package
+                            size={20}
+                            strokeWidth={2}
+                            aria-hidden="true"
+                            style={{ flexShrink: 0, marginTop: "2px", color: active ? "#0F766E" : "#94A3B8" }}
+                          />
+                          <div
+                            style={{
+                              minWidth: 0,
+                              color: active ? "#134E4A" : "#1E293B",
+                              fontSize: "18px",
+                              fontWeight: 700,
+                              lineHeight: "24px",
+                              overflow: "hidden",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {box.name}
+                          </div>
                         </div>
                         <div
                           style={{
@@ -371,55 +362,37 @@ export function InvoiceLineEntry({
                         </div>
                       </div>
 
-                      {/* العدّاد: ltr ليبقى [−] [رقم] [+] بترتيبه المألوف داخل صفحة RTL */}
-                      <div style={{ display: "flex", gap: "6px", direction: "ltr" }}>
-                        <button
-                          type="button"
-                          className="le-box-btn"
-                          tabIndex={-1}
-                          aria-label={`إنقاص عدد ${box.name}`}
-                          disabled={!active}
-                          onClick={() => updateBox(box.id, String(box.countInput - 1))}
-                          style={stepBtn(!active)}
-                        >
-                          <Minus size={16} />
-                        </button>
-                        <input
-                          className="le-box-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          aria-label={`عدد ${box.name}`}
-                          value={box.countInput || ""}
-                          placeholder="0"
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => updateBox(box.id, e.target.value.replace(/\D/g, ""))}
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                            height: "34px",
-                            boxSizing: "border-box",
-                            borderRadius: "8px",
-                            border: active ? "1.5px solid #0F766E" : "1.5px solid #CBD5E1",
-                            backgroundColor: "#FFFFFF",
-                            color: "#0F172A",
-                            fontSize: "16px",
-                            fontWeight: 700,
-                            textAlign: "center",
-                            fontFamily: "'Cairo', sans-serif",
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="le-box-btn"
-                          tabIndex={-1}
-                          aria-label={`زيادة عدد ${box.name}`}
-                          onClick={() => updateBox(box.id, String(box.countInput + 1))}
-                          style={stepBtn(false)}
-                        >
-                          <Plus size={16} />
-                        </button>
-                      </div>
+                      {/* العدد: كتابة مباشرة، و↑/↓ للزيادة والإنقاص بالكيبورد */}
+                      <input
+                        className="le-box-input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        aria-label={`عدد ${box.name}`}
+                        value={box.countInput || ""}
+                        placeholder="0"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => updateBox(box.id, e.target.value.replace(/\D/g, ""))}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                            e.preventDefault();
+                            updateBox(box.id, String(box.countInput + (e.key === "ArrowUp" ? 1 : -1)));
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          height: "38px",
+                          boxSizing: "border-box",
+                          borderRadius: "8px",
+                          border: active ? "1.5px solid #0F766E" : "1.5px solid #CBD5E1",
+                          backgroundColor: "#FFFFFF",
+                          color: "#0F172A",
+                          fontSize: "17px",
+                          fontWeight: 700,
+                          textAlign: "center",
+                          fontFamily: "'Cairo', sans-serif",
+                        }}
+                      />
                     </div>
                   );
                 })}
