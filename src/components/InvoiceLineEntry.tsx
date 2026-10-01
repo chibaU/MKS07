@@ -248,7 +248,7 @@ export function InvoiceLineEntry({
         {/* عمود الصناديق */}
         <div
           style={{
-            width: "300px",
+            width: "360px",
             flexShrink: 0,
             backgroundColor: "#F0FDFA",
             borderRadius: "10px",
@@ -256,119 +256,117 @@ export function InvoiceLineEntry({
             padding: "16px",
           }}
         >
+        
+          <div
+  style={{
+    maxHeight: "300px",
+    overflowY: "auto",
+    borderRadius: "9px",
+    border: "1px solid #CBD5E1",
+    backgroundColor: "#F1F5F9",
+    padding: "8px",
+  }}
+>
+  {entry.boxes.length > 0 ? (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+        gap: "8px",
+      }}
+    >
+      {entry.boxes.map((box) => (
+        <div
+          key={box.id}
+          style={{
+            minWidth: 0,
+            minHeight: "62px",
+            padding: "8px",
+            border: "1px solid #CBD5E1",
+            borderRadius: "8px",
+            backgroundColor: "#FFFFFF",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            gap: "6px",
+          }}
+        >
+          {/* اسم الصندوق */}
           <div
             style={{
-              color: "#115E59",
-              fontSize: "15px",
+              minWidth: 0,
+            }}
+            title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
+          >
+            <div
+              style={{
+                color: "#1E293B",
+                fontSize: "14px",
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: "18px",
+              }}
+            >
+              {box.name}
+            </div>
+
+            <div
+              style={{
+                color: "#64748B",
+                fontSize: "12px",
+                fontWeight: 500,
+                lineHeight: "14px",
+              }}
+            >
+              فارغ: {box.emptyWeight} كغ
+            </div>
+            
+          </div>
+
+          {/* العدد */}
+          <input
+            type="number"
+            value={box.countInput || ""}
+            placeholder="0"
+            onChange={(e) => updateBox(box.id, e.target.value)}
+            min="0"
+            step="1"
+            style={{
+              width: "100%",
+              height: "28px",
+              boxSizing: "border-box",
+              padding: "2px 6px",
+              borderRadius: "6px",
+              border: "1.5px solid #0F766E",
+              backgroundColor: "#F0FDFA",
+              color: "#0F172A",
+              fontSize: "13px",
               fontWeight: 700,
-              marginBottom: "12px",
+              textAlign: "center",
+              fontFamily: "'Cairo', sans-serif",
+              outline: "none",
             }}
-          >
-            الصناديق النشطة
-          </div>
-          <div
-            style={{
-              maxHeight: "220px",
-              overflowY: "auto",
-              borderRadius: "8px",
-              border: "1px solid #99F6E4",
-              backgroundColor: "white",
-            }}
-          >
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr>
-                  <th
-                    style={{
-                      ...c.th,
-                      padding: "10px 14px",
-                      fontSize: "14px",
-                      backgroundColor: "#CCFBF1",
-                      color: "#115E59",
-                      borderBottom: "2px solid #5EEAD4",
-                      position: "sticky",
-                      top: 0,
-                    }}
-                  >
-                    الصندوق
-                  </th>
-                  <th
-                    style={{
-                      ...c.th,
-                      padding: "10px 14px",
-                      fontSize: "14px",
-                      backgroundColor: "#CCFBF1",
-                      color: "#115E59",
-                      borderBottom: "2px solid #5EEAD4",
-                      position: "sticky",
-                      top: 0,
-                    }}
-                  >
-                    العدد
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {entry.boxes.map((box) => (
-                  <tr key={box.id}>
-                    <td
-                      style={{
-                        ...c.td,
-                        padding: "10px 14px",
-                        fontSize: "15px",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {box.name}
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          color: "#0F766E",
-                          fontWeight: 400,
-                        }}
-                      >
-                        فارغ: {box.emptyWeight} كغ
-                      </div>
-                    </td>
-                    <td style={{ ...c.td, padding: "8px 14px" }}>
-                      <input
-                        type="number"
-                        value={box.countInput || ""}
-                        placeholder="0"
-                        onChange={(e) => updateBox(box.id, e.target.value)}
-                        min="0"
-                        step="1"
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: "6px",
-                          border: "2px solid #0D9488",
-                          backgroundColor: "#FFFFFF",
-                          color: "#0F172A",
-                          fontSize: "15px",
-                          width: "85px",
-                          textAlign: "center",
-                          fontFamily: "'Cairo', sans-serif",
-                          outline: "none",
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {entry.boxes.length === 0 && (
-              <div
-                style={{
-                  padding: "16px",
-                  textAlign: "center",
-                  color: "#0F766E",
-                  fontSize: "14px",
-                }}
-              >
-                لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
-              </div>
-            )}
-          </div>
+          />
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div
+      style={{
+        padding: "16px",
+        textAlign: "center",
+        color: "#475569",
+        fontSize: "14px",
+      }}
+    >
+      لا توجد صناديق نشطة — أضف صناديق من صفحة الصناديق
+    </div>
+  )}
+</div>
+
           <div
             style={{
               marginTop: "12px",

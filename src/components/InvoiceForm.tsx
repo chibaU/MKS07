@@ -191,18 +191,30 @@ export function InvoiceForm({
         );
         const scaleWeight = round2(row.weight + totalEmptyWeight);
 
+        // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج.
+        // سعر بسنتيم غير صفري (بند قديم من قبل MoneyInput، مثل 87,50) لا يُدوَّر أبداً:
+        // التدوير يغيّر المبلغ بحجم الكمية (87,5 × 10.000 كغ ← فرق 5.000 دج)، ولا يمكن
+        // وضعه كما هو في MoneyInput لأنه يتجاهل الفاصلة فيقرؤه ×10. فيُترك الحقل فارغاً
+        // ويُنبَّه المستخدم ليُدخل السعر بنفسه عن قصد.
+        const priceIsWhole = Number.isInteger(row.price);
         onChange({
           productInput: row.product,
           productId: row.productId ?? undefined,
           scaleWeightInput: String(scaleWeight),
-          // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج
-          priceInput: row.price > 0 ? String(Math.round(row.price)) : "",
+          priceInput: row.price > 0 && priceIsWhole ? String(row.price) : "",
           boxes: nextBoxes,
         });
         setLineEntryKey((k) => k + 1);
 
         // الجدول أسفل النموذج: بدون هذا قد يبدو الزر بلا أثر لمن ضغطه من أسفل صفحة طويلة
         lineEntryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        if (row.price > 0 && !priceIsWhole) {
+          alert(
+            `سعر البند الأصلي (${formatMoney(row.price)} دج) يحتوي سنتيماً ولا يمكن إدخاله في خانة السعر، ` +
+              "فتُرك الحقل فارغاً كي لا يُدوَّر السعر بصمت. أدخل السعر يدوياً.",
+          );
+        }
       } catch (error) {
         console.error("خطأ أثناء نسخ البند:", error);
         alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
@@ -526,7 +538,7 @@ export function InvoiceForm({
                     {i + 1}
                   </td>
                   <td style={{ ...c.td, fontWeight: 600 }}>{row.product}</td>
-                  <td style={c.td}>{row.weight.toFixed(1)}</td>
+                  <td style={c.td}>{row.weight.toFixed(2)}</td>
                   <td style={{ ...c.td, color: "#0F766E", fontWeight: 700 }}>
                     {formatMoney(row.price)} دج
                   </td>
