@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from "react";
-import { Trash2, Copy, Save, Printer, X } from "lucide-react";
+import { Trash2, Copy, Save, Printer, X, Hash, Store } from "lucide-react";
 import type { Draft, DraftBox, DraftRow } from "./invoice";
 import {
   type Merchant,
@@ -9,7 +9,16 @@ import {
   boxService,
   StaleReferenceError,
 } from "../services/db";
-import { formStyles as c, round2, formatMoney, Autocomplete, type Suggestion } from "./InvoiceShared";
+import {
+  formStyles as c,
+  round2,
+  formatMoney,
+  Autocomplete,
+  FieldLabel,
+  FIELD_CSS,
+  FIELD_VARS,
+  type Suggestion,
+} from "./InvoiceShared";
 import { InvoiceLineEntry } from "./InvoiceLineEntry";
 
 // ─── InvoiceForm ──────────────────────────────────────────────────────────────
@@ -363,9 +372,14 @@ export function InvoiceForm({
             : "إنشاء فاتورة جديدة"}
         </div>
 
-        {/* رقم الفاتورة (القسم 4) */}
-        <div style={{ marginBottom: "18px" }}>
-          <label style={c.label}>رقم الفاتورة</label>
+        <style>{FIELD_CSS}</style>
+
+        {/* رقم الفاتورة (القسم 4) — الرقم المؤكَّد (المقفل) يبقى رمادياً بلا هوية الحقل المفتوح */}
+        <div
+          className={draft.isNumberLocked ? undefined : "le-f"}
+          style={{ marginBottom: "18px", ...FIELD_VARS }}
+        >
+          <FieldLabel icon={<Hash size={17} />}>رقم الفاتورة</FieldLabel>
           <input
             type="text"
             style={{
@@ -396,8 +410,8 @@ export function InvoiceForm({
         </div>
 
         {/* التاجر */}
-        <div style={{ marginBottom: "18px" }}>
-          <label style={c.label}>اسم التاجر</label>
+        <div className="le-f" style={{ marginBottom: "18px", ...FIELD_VARS }}>
+          <FieldLabel icon={<Store size={17} />}>اسم التاجر</FieldLabel>
           <Autocomplete
             value={draft.merchantName}
             onChange={handleMerchantChange}

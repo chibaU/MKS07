@@ -7,6 +7,8 @@ import {
   memo,
   type ChangeEvent,
   type ClipboardEvent,
+  type CSSProperties,
+  type ReactNode,
 } from "react";
 
 // ─── وحدة مشتركة ─────────────────────────────────────────────────────────────
@@ -69,6 +71,58 @@ export const formStyles = {
     fontSize: "16px",
   },
 } as const;
+
+// ─── هوية حقول الإدخال (الصفحة الرئيسية) ─────────────────────────────────────
+// لون واحد هو أزرق التطبيق؛ التمييز بين الحقول بالأيقونة والعنوان لا باللون. التيل محجوز
+// للصناديق، والأخضر/الأحمر لرسائل الحالة. الحد داكن عمداً لمستخدم ضعيف النظر.
+// يُطبَّق بوضع className="le-f" + style={FIELD_VARS} على غلاف الحقل (مع <style>{FIELD_CSS}</style>)
+// لا عبر formStyles.input، كي لا يتغير أي حقل لا يريده (مثل رقم فاتورة مقفل).
+export const FIELD_TONE = {
+  border: "#7283a5",
+  bg: "#F3F7FF",
+  ring: "rgba(37,99,235,0.25)",
+  tile: "#DBEAFE",
+  text: "#1E40AF",
+} as const;
+
+export const FIELD_VARS = {
+  "--fc": FIELD_TONE.border,
+  "--fbg": FIELD_TONE.bg,
+  "--ring": FIELD_TONE.ring,
+} as CSSProperties;
+
+export const FIELD_CSS = `
+  .le-f input { border-color: var(--fc) !important; background-color: var(--fbg) !important; transition: box-shadow .12s, background-color .12s; }
+  .le-f input:focus { background-color: #FFFFFF !important; box-shadow: 0 0 0 4px var(--ring); }
+  .le-f input + span[aria-hidden="true"] { color: var(--fc) !important; }
+  @media (prefers-reduced-motion: reduce) { .le-f input { transition: none !important; } }
+`;
+
+export function FieldLabel({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <label
+      style={{ ...formStyles.label, display: "flex", alignItems: "center", gap: "8px", color: FIELD_TONE.text }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: "28px",
+          height: "28px",
+          borderRadius: "8px",
+          backgroundColor: FIELD_TONE.tile,
+          color: FIELD_TONE.text,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </span>
+      {children}
+    </label>
+  );
+}
 
 // تقريب موحّد لمنزلتين عشريتين — نفس المنطق المستخدَم في
 // InvoiceForm.tsx و HomePage.tsx (القسم 6.1 من AI_CONTEXT.md).

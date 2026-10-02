@@ -1,10 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useCallback, useState } from "react";
-import { Plus, Package } from "lucide-react";
+import { Plus, Package, Tag, Scale, Banknote } from "lucide-react";
 import type { DraftBox, DraftRow } from "./invoice";
 import { StaleReferenceError, type Product } from "../services/db";
 import {
   formStyles as c,
+  FieldLabel,
+  FIELD_CSS,
+  FIELD_VARS,
   round2,
   Autocomplete,
   MoneyInput,
@@ -260,6 +263,7 @@ export function InvoiceLineEntry({
           .le-box-input:focus { outline: 2px solid #2563EB; outline-offset: 1px; }
           .le-box-card { transition: background-color .12s, border-color .12s; }
           @media (prefers-reduced-motion: reduce) { .le-box-card { transition: none; } }
+          ${FIELD_CSS}
         `}</style>
         <div
           style={{
@@ -434,8 +438,8 @@ export function InvoiceLineEntry({
             gap: "16px",
           }}
         >
-          <div>
-            <label style={c.label}>اسم المنتج</label>
+          <div className="le-f" style={FIELD_VARS}>
+            <FieldLabel icon={<Tag size={17} />}>اسم المنتج</FieldLabel>
             <Autocomplete
               value={entry.productInput}
               onChange={handleProductChange}
@@ -451,8 +455,8 @@ export function InvoiceLineEntry({
               </div>
             )}
           </div>
-          <div>
-            <label style={c.label}>الوزن المُدرَج على الميزان (كغ)</label>
+          <div className="le-f" style={FIELD_VARS}>
+            <FieldLabel icon={<Scale size={17} />}>الوزن المُدرَج على الميزان (كغ)</FieldLabel>
             <input
               type="text"
               inputMode="decimal"
@@ -515,8 +519,8 @@ export function InvoiceLineEntry({
               </div>
             )}
           </div>
-          <div>
-            <label style={c.label}>سعر المنتج (دج/كغ)</label>
+          <div className="le-f" style={FIELD_VARS}>
+            <FieldLabel icon={<Banknote size={17} />}>سعر المنتج (دج/كغ)</FieldLabel>
             <MoneyInput
               value={entry.priceInput}
               onChange={(digits) => handleFieldChange({ priceInput: digits })}
