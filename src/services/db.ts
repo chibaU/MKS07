@@ -1223,3 +1223,162 @@ export const invoiceService = {
     });
   }
 };
+// ============================================================================
+// ميزة «مزامنة الهاتف» (AI_CONTEXT.md القسم 10) — الجزء الوحيد منها الذي يكتب في
+// SQLite الرئيسية، وهو دالة واحدة تُستدعى حصراً بعد مراجعة المستخدم وتأكيده.
+// بقية الميزة (src/features/phone-sync/) لا تلمس القاعدة إطلاقاً. وُضعت الدالة
+// هنا — لا داخل مجلد الميزة — لأن قاعدة المشروع (القسم 8): كل SQL في db.ts، وهي
+// تحتاج مساعدات هذا الملف الداخلية (runExclusive، withInvoiceNumberRetry،
+// assertMerchantExists...) لتولّد رقم الفاتورة بنفس النظام الحالي تماماً.
+// ============================================================================
+
+export interface PhoneImportLine {
+  productName: string;
+  quantity: number; // الوزن الصافي بعد إعادة الحساب ببيانات الكمبيوتر الحالية
+  price: number;
+  subtotal: number;
+  boxes: CreateInvoiceDetailBox[];
+}
+
+export interface PhoneImportInput {
+  clientId: string; // المعرّف الفريد للفاتورة على الهاتف (منع التكرار)
+  merchantId: number;
+  invoiceDate: string; // YYYY-MM-DD
+  totalAmount: number;
+  lines: PhoneImportLine[];
+}
+
+export interface PhoneImportResult {
+  invoiceId: number;
+  invoiceNumber: string;
+  // true = كانت الفاتورة محفوظة فعلاً من محاولة سابقة (انقطع التأكيد بعد الحفظ)؛
+  // لم يُكتَب شيء جديد.
+  alreadyImported: boolean;
+}
+
+// حذف صفوف فاتورة (وبنودها وصناديق بنودها) — داخلياً فقط، تحت runExclusive قائم.
+async function deleteInvoiceRowsRaw(raw: RawDatabaseConnection, invoiceId: number): Promise<void> {
+  await raw.execute(
+    `DELETE FROM invoice_detail_boxes
+     WHERE invoice_detail_id IN (SELECT id FROM invoice_details WHERE invoice_id = $1)`,
+    [invoiceId]
+  );
+  await raw.execute('DELETE FROM invoice_details WHERE invoice_id = $1', [invoiceId]);
+  await raw.execute('DELETE FROM invoices WHERE id = $1', [invoiceId]);
+}
+
+export const phoneImportService = {
+  // هل سبق استيراد هذه الفاتورة (بمعرّف الهاتف) كاملةً؟ للقراءة فقط.
+  async findImported(clientId: string): Promise<{ invoiceId: number; invoiceNumber: string | null } | null> {
+    return await runExclusive(async (raw) => {
+      const rows = await raw.select<{ id: number; invoice_number: NullableString }[]>(
+        'SELECT id, invoice_number FROM invoices WHERE source_client_id = $1 LIMIT 1',
+        [clientId]
+      );
+      return rows[0] ? { invoiceId: rows[0].id, invoiceNumber: rows[0].invoice_number } : null;
+    });
+  },
+
+  // يحفظ فاتورة قادمة من الهاتف كفاتورة حقيقية مغلقة (is_open = 0) برقم جديد من
+  // نظام الترقيم الحالي. آمنة لإعادة الاستدعاء بنفس clientId:
+  //  • الوسم source_client_id يُكتَب داخل نفس عبارة INSERT للفاتورة (ذرّي)، والفهرس
+  //    الفريد uq_invoices_source_client يمنع أي نسخة ثانية.
+  //  • tauri-plugin-sql لا يقدّم معاملة حقيقية عبر استدعاءات متتالية (راجع تعليق
+  //    executeInTransaction)، فقد ينقطع التيار بعد إدراج الفاتورة وقبل اكتمال
+  //    بنودها. لذلك: عند وجود فاتورة بهذا الوسم نتحقق من اكتمال بنودها وصناديقها؛
+  //    إن اكتملت تُعاد كما هي (alreadyImported)، وإن لم تكتمل تُحذَف بقاياها
+  //    (فاتورة وسمناها نحن ولم تُفتَح قط) ثم تُعاد المحاولة من الصفر.
+  //  • فحوصات المراجع (تاجر/صناديق) قبل أي كتابة، كباقي الدوال (StaleReferenceError).
+  async importInvoice(input: PhoneImportInput): Promise<PhoneImportResult> {
+    const { year, month } = deriveYearMonth(input.invoiceDate);
+    const expectedBoxRows = input.lines.reduce((n, l) => n + l.boxes.length, 0);
+
+    return await runExclusive(async (raw) => {
+      const existing = await raw.select<{ id: number; invoice_number: NullableString }[]>(
+        'SELECT id, invoice_number FROM invoices WHERE source_client_id = $1 LIMIT 1',
+        [input.clientId]
+      );
+
+      if (existing.length > 0) {
+        const ex = existing[0];
+        const d = await raw.select<{ n: number }[]>(
+          'SELECT COUNT(*) AS n FROM invoice_details WHERE invoice_id = $1',
+          [ex.id]
+        );
+        const b = await raw.select<{ n: number }[]>(
+          `SELECT COUNT(*) AS n FROM invoice_detail_boxes
+           WHERE invoice_detail_id IN (SELECT id FROM invoice_details WHERE invoice_id = $1)`,
+          [ex.id]
+        );
+        if (
+          ex.invoice_number &&
+          (d[0]?.n ?? 0) === input.lines.length &&
+          (b[0]?.n ?? 0) === expectedBoxRows
+        ) {
+          return { invoiceId: ex.id, invoiceNumber: ex.invoice_number, alreadyImported: true };
+        }
+        await deleteInvoiceRowsRaw(raw, ex.id); // بقايا استيراد منقطع
+      }
+
+      return await withInvoiceNumberRetry(
+        raw,
+        input.merchantId,
+        year,
+        month,
+        async (nextCounter, invoiceNumber): Promise<PhoneImportResult> => {
+          await assertMerchantExists(raw, input.merchantId);
+          await assertBoxesExist(
+            raw,
+            input.lines.flatMap((l) => l.boxes.map((box) => box.box_id))
+          );
+
+          const invoiceResult = await raw.execute(
+            `INSERT INTO invoices (
+              merchant_id, invoice_date, total_amount, is_open,
+              number_year, number_month, number_merchant_id, number_counter, invoice_number,
+              source_client_id
+            ) VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9)`,
+            [
+              input.merchantId,
+              input.invoiceDate,
+              input.totalAmount,
+              year,
+              month,
+              input.merchantId,
+              nextCounter,
+              invoiceNumber,
+              input.clientId
+            ]
+          );
+          const invoiceId = requireLastInsertId(invoiceResult, 'invoice');
+
+          try {
+            for (const line of input.lines) {
+              const detailResult = await raw.execute(
+                'INSERT INTO invoice_details (invoice_id, product_name, quantity, price, subtotal) VALUES ($1, $2, $3, $4, $5)',
+                [invoiceId, line.productName, line.quantity, line.price, line.subtotal]
+              );
+              const detailId = requireLastInsertId(detailResult, 'invoice detail');
+              for (const box of line.boxes) {
+                await raw.execute(
+                  'INSERT INTO invoice_detail_boxes (invoice_detail_id, box_id, box_count) VALUES ($1, $2, $3)',
+                  [detailId, box.box_id, box.box_count]
+                );
+              }
+            }
+          } catch (error: unknown) {
+            // فشل في منتصف البنود: لا نترك فاتورة ناقصة وسمناها بمعرّف الهاتف.
+            try {
+              await deleteInvoiceRowsRaw(raw, invoiceId);
+            } catch (cleanupError: unknown) {
+              console.error('تعذر تنظيف فاتورة مستوردة ناقصة (ستُنظَّف عند المحاولة التالية):', cleanupError);
+            }
+            throw error;
+          }
+
+          return { invoiceId, invoiceNumber, alreadyImported: false };
+        }
+      );
+    });
+  }
+};

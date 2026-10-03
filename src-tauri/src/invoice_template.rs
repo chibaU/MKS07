@@ -495,11 +495,14 @@ fn fill_template(sheet: &mut Worksheet, data: &InvoicePrintInput) -> Result<Opti
     let (row_template, row_merges) = capture_row_template(sheet, band_row);
 
 //
-let base_row_height = sheet
-    .get_row_dimension(&band_row)
-    .map(|row| *row.get_height())
-    .filter(|height| *height > 0.0)
-    .unwrap_or(15.0);
+// ارتفاع صف {{بند}} في القالب (إن ضبطه المستخدم صراحةً). insert_new_row
+    // لا ينسخ ارتفاع الصف للصفوف الجديدة، فكانت تظهر بالارتفاع الافتراضي
+    // ويبقى السطر الأول وحده بالارتفاع المخصص.
+    let template_row_height: Option<f64> = sheet
+        .get_row_dimension(&band_row)
+        .map(|row| *row.get_height())
+        .filter(|height| *height > 0.0);
+    let base_row_height = template_row_height.unwrap_or(15.0);
 
     //
 
@@ -566,6 +569,12 @@ if max_box_lines > 1 {
     sheet
         .get_row_dimension_mut(&target_row)
         .set_height(base_row_height * max_box_lines as f64);
+} else if template_row_height.is_some() {
+    // سطر بلا تعدد صناديق: نطبّق ارتفاع القالب كما هو على كل الصفوف
+    // (بما فيها المُدرَجة)، لا على السطر الأول فقط.
+    sheet
+        .get_row_dimension_mut(&target_row)
+        .set_height(base_row_height);
 }
 
         if target_row != band_row {

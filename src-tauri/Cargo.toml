@@ -49,3 +49,19 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # يكتبه المستخدم ببصمة SHA-256 مخزَّنة في activation.rs، لا بنص الكود الصريح —
 # حتى لا يظهر الكود السري نفسه كنص قابل للقراءة داخل الملف التنفيذي النهائي.
 sha2 = "0.10"
+
+# ── ميزة «مزامنة الهاتف» (AI_CONTEXT.md القسم 10) ──
+# خدمة HTTPS محلية معزولة (src/phone_sync/). كل التبعيات هنا مخصصة لها وحدها.
+# ring (لا aws-lc) مقصود: يتجنب الحاجة إلى cmake/NASM عند بناء Windows في CI.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "query"] }
+axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "x509-parser"] }
+ring = "0.17"
+if-addrs = "0.15"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -9,8 +9,13 @@ import { SettingsPage } from "./components/SettingsPage";
 import { boxService, merchantService, productService, invoiceService, type Box, type Merchant, type Product } from "./services/db";
 import { makeDraft, draftFromInvoice } from "./components/InvoiceManager";
 import type { Draft } from "./components/invoice";
+// ميزة «مزامنة الهاتف» — مستقلة ومعزولة (AI_CONTEXT.md القسم 10). لا تعتمد عليها أي
+// صفحة أخرى، وكل أخطائها محتواة داخل PhoneSyncErrorBoundary.
+import { PhoneSyncPage } from "./features/phone-sync/PhoneSyncPage";
+import { PhoneSyncHost } from "./features/phone-sync/PhoneSyncHost";
+import { PhoneSyncErrorBoundary } from "./features/phone-sync/PhoneSyncErrorBoundary";
 
-type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
+type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings" | "phoneSync";
 
 const SIDEBAR_WIDTH = 240;
 const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -226,7 +231,17 @@ export default function App() {
         )}
         {activePage === "boxes"     && <BoxesPage onDataChange={refreshBoxes} />}
         {activePage === "settings"  && <SettingsPage />}
+        {activePage === "phoneSync" && (
+          <PhoneSyncErrorBoundary>
+            <PhoneSyncPage />
+          </PhoneSyncErrorBoundary>
+        )}
       </main>
+
+      {/* خفي: يجيب عن طلبات الهاتف للبيانات الأساسية ويُنبّه بوصول فواتير. معزول بحاجز أخطاء صامت. */}
+      <PhoneSyncErrorBoundary silent>
+        <PhoneSyncHost pageActive={activePage === "phoneSync"} onOpenPage={() => setActivePage("phoneSync")} />
+      </PhoneSyncErrorBoundary>
     </div>
   );
 }

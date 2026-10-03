@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>إعداد الاتصال الآمن — MKS</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, "Segoe UI", Tahoma, sans-serif; margin: 0; padding: 18px;
+         line-height: 1.8; background: #F8FAFC; color: #0F172A; }
+  @media (prefers-color-scheme: dark) { body { background: #0F172A; color: #E2E8F0; } .card { background: #1E293B !important; border-color: #334155 !important; } code { background: #334155 !important; } }
+  h1 { font-size: 22px; margin: 4px 0 12px; }
+  h2 { font-size: 18px; margin: 0 0 8px; }
+  .card { background: #fff; border: 1px solid #CBD5E1; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .btn { display: block; text-align: center; padding: 14px; border-radius: 10px; background: #2563EB;
+         color: #fff; text-decoration: none; font-size: 17px; font-weight: 700; margin: 10px 0; }
+  .btn.alt { background: #059669; }
+  ol { padding-inline-start: 22px; margin: 6px 0; }
+  code { direction: ltr; unicode-bidi: embed; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;
+         font-size: 13px; word-break: break-all; display: inline-block; }
+  .note { font-size: 14px; opacity: .85; }
+</style>
+</head>
+<body>
+<h1>🔒 إعداد الاتصال الآمن بالكمبيوتر</h1>
+
+<div class="card">
+  <p>هذه الخطوة تُنفَّذ <strong>مرة واحدة فقط</strong> على كل هاتف. تجعل هاتفك يثق بالاتصال المحلي
+  الآمن (HTTPS) مع برنامج MKS على الكمبيوتر، وهو شرط لعمل التطبيق دون إنترنت.
+  الشهادة لا تُستخدم إلا لهذا الاتصال المحلي.</p>
+  <a class="btn" href="/ca.crt" download="MKS-Local-CA.crt">① تنزيل شهادة الأمان</a>
+</div>
+
+<div class="card">
+  <h2>📱 أندرويد</h2>
+  <ol>
+    <li>بعد التنزيل افتح: <strong>الإعدادات ← الأمان</strong> ← <strong>مزيد من الإعدادات الأمنية</strong>
+        ← <strong>التشفير وبيانات الاعتماد</strong> ← <strong>تثبيت شهادة</strong> ← <strong>شهادة CA</strong>.</li>
+    <li>اختر «التثبيت على أي حال» ثم الملف <code>MKS-Local-CA.crt</code> من التنزيلات.</li>
+  </ol>
+  <p class="note">قد تختلف الأسماء قليلاً حسب نوع الهاتف. يلزم أن يكون للهاتف قفل شاشة (رمز/بصمة).</p>
+</div>
+
+<div class="card">
+  <h2>🍎 آيفون / آيباد</h2>
+  <ol>
+    <li>اضغط «سماح» عند ظهور رسالة تنزيل الملف الشخصي.</li>
+    <li><strong>الإعدادات ← تم تنزيل الملف الشخصي</strong> ← <strong>تثبيت</strong>.</li>
+    <li><strong>الإعدادات ← عام ← حول ← إعدادات الثقة بالشهادات</strong> ← فعّل <strong>MKS Local CA</strong>.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h2>🔍 تحقق (اختياري لكن مفضَّل)</h2>
+  <p class="note">بصمة الشهادة SHA-256 — يجب أن تطابق البصمة الظاهرة في برنامج الكمبيوتر
+  (صفحة «مزامنة الهاتف») تماماً:</p>
+  <code>{{FINGERPRINT}}</code>
+</div>
+
+<div class="card">
+  <h2>② بعد التثبيت</h2>
+  <p>ارجع إلى برنامج الكمبيوتر وامسح <strong>رمز QR الثاني</strong> («فتح التطبيق») بكاميرا الهاتف.
+  أو اضغط هنا ثم أدخل مفتاح الوصول من داخل التطبيق:</p>
+  <a class="btn alt" id="open" href="#">فتح تطبيق الفواتير</a>
+</div>
+
+<script>
+  document.getElementById('open').href = 'https://' + location.hostname + ':{{HTTPS_PORT}}/';
+</script>
+</body>
+</html>

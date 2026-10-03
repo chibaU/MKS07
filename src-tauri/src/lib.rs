@@ -7,6 +7,9 @@ use std::fs;
 mod invoice_template;
 // ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
 mod activation;
+// ميزة «مزامنة الهاتف» — معزولة بالكامل (راجع AI_CONTEXT.md القسم 10 وتعليق
+// phone_sync/mod.rs). لا تلمس SQLite ولا بقية وحدات Rust.
+mod phone_sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -105,6 +108,21 @@ pub fn run() {
             ",
             kind: MigrationKind::Up,
         },
+        // ميزة «مزامنة الهاتف» (AI_CONTEXT.md القسم 10): migration إضافية بحتة —
+        // عمود اختياري واحد + فهرس. لا تغيّر أي عمود أو استعلام موجود، وتبقى
+        // NULL لكل فاتورة أُنشئت من الكمبيوتر. الغرض: وسم الفاتورة المستوردة من
+        // هاتف بمعرّفها الفريد داخل نفس سطر الإدراج (عملية ذرية واحدة)، فيمنع
+        // الفهرس الفريد تكرارها حتى لو انقطع التيار بين الحفظ وتسجيل التأكيد.
+        Migration {
+            version: 2,
+            description: "phone_sync_source_client_id",
+            sql: "
+                ALTER TABLE invoices ADD COLUMN source_client_id TEXT;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_source_client
+                    ON invoices(source_client_id) WHERE source_client_id IS NOT NULL;
+            ",
+            kind: MigrationKind::Up,
+        },
     ];
 
     #[allow(unused_mut)]
@@ -128,6 +146,9 @@ pub fn run() {
     }
 
     builder
+        // حالة ميزة مزامنة الهاتف: كائن فارغ خامل حتى يضغط المستخدم «تشغيل» —
+        // لا منفذ ولا خيط ولا ملف يُنشأ قبل ذلك.
+        .manage(phone_sync::PhoneSyncState::default())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:mks.db", migrations)
@@ -149,7 +170,19 @@ pub fn run() {
             // المعمارية أعلى رأس invoice_template.rs.
             invoice_template::print_invoice_direct,
             invoice_template::list_system_printers,
-            activation::verify_activation_code
+            activation::verify_activation_code,
+            // ميزة مزامنة الهاتف (طبقة Tauri الرقيقة فقط)
+            phone_sync::commands::phone_sync_info,
+            phone_sync::commands::phone_sync_start,
+            phone_sync::commands::phone_sync_stop,
+            phone_sync::commands::phone_sync_regenerate_key,
+            phone_sync::commands::phone_sync_provide_snapshot,
+            phone_sync::commands::phone_sync_list,
+            phone_sync::commands::phone_sync_confirm,
+            phone_sync::commands::phone_sync_reject,
+            phone_sync::commands::phone_sync_reopen,
+            phone_sync::commands::phone_sync_delete_finished,
+            phone_sync::commands::phone_sync_qr
         ])
         .setup(|app| {
             // 🚀 فقط نتأكد من أن مجلد التطبيق موجود ليتم إنشاء قاعدة البيانات بداخله بنجاح
