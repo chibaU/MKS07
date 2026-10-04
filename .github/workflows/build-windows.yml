@@ -24,13 +24,43 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Tauri app and publish release
+      - name: Build Tauri app
+        run: npm run tauri build
+
+      - name: Decode Certificate and Sign Exe
+        shell: powershell
+        env:
+          CERT_BASE64: ${{ secrets.CERTIFICATE_BASE64 }}
+          CERT_PASS: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          # 1. استخراج ملف الشهادة PFX من السريات
+          $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
+          [System.IO.File]::WriteAllBytes("ChibaCodeSigning.pfx", $bytes)
+
+          # 2. البحث التلقائي عن مسار أداة signtool.exe داخل سيرفر Windows
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+
+          # 3. العثور على ملف التثبيت الناتج من Tauri
+          $installer = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -Filter "*.exe" | Select-Object -First 1
+
+          if ($installer -and $signtool) {
+              Write-Host "Signing installer at: $($installer.FullName)"
+              & $signtool sign /f "ChibaCodeSigning.pfx" /p $env:CERT_PASS /fd sha256 /tr http://timestamp.digicert.com "$($installer.FullName)"
+          } else {
+              Write-Error "Could not find installer or signtool.exe"
+              exit 1
+          }
+
+          # 4. تنظيف وحذف ملف الشهادة بعد التوقيع
+          Remove-Item "ChibaCodeSigning.pfx" -Force
+
+      - name: Publish Release via Tauri Action
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: mks-v__VERSION__
           releaseName: "MKS v__VERSION__"
-          releaseBody: "نسخة تثبيت ويندوز جاهزة"
+          releaseBody: "نسخة تثبيت ويندوز جاهزة وموقعة"
           releaseDraft: true
           prerelease: false
