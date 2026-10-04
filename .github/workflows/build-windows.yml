@@ -37,8 +37,10 @@ jobs:
           $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
           [System.IO.File]::WriteAllBytes("ChibaCodeSigning.pfx", $bytes)
 
-          # 2. البحث التلقائي عن مسار أداة signtool.exe داخل سيرفر Windows
-          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          # 2. البحث عن أداة signtool الخاصة بمعمارية x64 حصراً
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1 -ExpandProperty FullName
+
+          Write-Host "Using Signtool at: $signtool"
 
           # 3. العثور على ملف التثبيت الناتج من Tauri
           $installer = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -Filter "*.exe" | Select-Object -First 1
@@ -47,7 +49,7 @@ jobs:
               Write-Host "Signing installer at: $($installer.FullName)"
               & $signtool sign /f "ChibaCodeSigning.pfx" /p $env:CERT_PASS /fd sha256 /tr http://timestamp.digicert.com "$($installer.FullName)"
           } else {
-              Write-Error "Could not find installer or signtool.exe"
+              Write-Error "Could not find valid x64 signtool.exe or installer file"
               exit 1
           }
 
