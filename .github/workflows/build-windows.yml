@@ -3,66 +3,67 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
+  jobs:
+    build:
+        runs-on: windows-latest
+            permissions:
+                  contents: write
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+                      steps:
+                            - name: Checkout code
+                                    uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+                                          - name: Setup Node.js
+                                                  uses: actions/setup-node@v4
+                                                          with:
+                                                                    node-version: 22
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+                                                                          - name: Setup Rust
+                                                                                  uses: dtolnay/rust-toolchain@stable
 
-      - name: Install frontend dependencies
-        run: npm install
+                                                                                        - name: Install frontend dependencies
+                                                                                                run: npm install
 
-      - name: Build Tauri app
-        run: npm run tauri build
+                                                                                                      - name: Build Tauri app
+                                                                                                              run: npm run tauri build
 
-      - name: Decode Certificate and Sign Exe
-        shell: powershell
-        env:
-          CERT_BASE64: ${{ secrets.CERTIFICATE_BASE64 }}
-          CERT_PASS: ${{ secrets.CERTIFICATE_PASSWORD }}
-        run: |
-          # 1. استخراج ملف الشهادة PFX من السريات
-          $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
-          [System.IO.File]::WriteAllBytes("ChibaCodeSigning.pfx", $bytes)
+                                                                                                                    - name: Decode Certificate and Sign Exe
+                                                                                                                            shell: powershell
+                                                                                                                                    env:
+                                                                                                                                              CERT_BASE64: ${{ secrets.CERTIFICATE_BASE64 }}
+                                                                                                                                                        CERT_PASS: ${{ secrets.CERTIFICATE_PASSWORD }}
+                                                                                                                                                                run: |
+                                                                                                                                                                          # 1. استخراج ملف الشهادة PFX من السريات
+                                                                                                                                                                                    $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
+                                                                                                                                                                                              [System.IO.File]::WriteAllBytes("ChibaCodeSigning.pfx", $bytes)
 
-          # 2. البحث عن أداة signtool الخاصة بمعمارية x64 حصراً
-          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1 -ExpandProperty FullName
+                                                                                                                                                                                                        # 2. البحث عن أداة signtool الخاصة بمعمارية x64 حصراً
+                                                                                                                                                                                                                  $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1 -ExpandProperty FullName
 
-          Write-Host "Using Signtool at: $signtool"
+                                                                                                                                                                                                                            Write-Host "Using Signtool at: $signtool"
 
-          # 3. العثور على ملف التثبيت الناتج من Tauri
-          $installer = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -Filter "*.exe" | Select-Object -First 1
+                                                                                                                                                                                                                                      # 3. العثور على ملف التثبيت الناتج من Tauri
+                                                                                                                                                                                                                                                $installer = Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -Filter "*.exe" | Select-Object -First 1
 
-          if ($installer -and $signtool) {
-              Write-Host "Signing installer at: $($installer.FullName)"
-              & $signtool sign /f "ChibaCodeSigning.pfx" /p $env:CERT_PASS /fd sha256 /tr http://timestamp.digicert.com "$($installer.FullName)"
-          } else {
-              Write-Error "Could not find valid x64 signtool.exe or installer file"
-              exit 1
-          }
+                                                                                                                                                                                                                                                          if ($installer -and $signtool) {
+                                                                                                                                                                                                                                                                        Write-Host "Signing installer at: $($installer.FullName)"
+                                                                                                                                                                                                                                                                                      & $signtool sign /f "ChibaCodeSigning.pfx" /p $env:CERT_PASS /fd sha256 /tr http://timestamp.digicert.com /td sha256 "$($installer.FullName)"
+                                                                                                                                                                                                                                                                                                } else {
+                                                                                                                                                                                                                                                                                                              Write-Error "Could not find valid x64 signtool.exe or installer file"
+                                                                                                                                                                                                                                                                                                                            exit 1
+                                                                                                                                                                                                                                                                                                                                      }
 
-          # 4. تنظيف وحذف ملف الشهادة بعد التوقيع
-          Remove-Item "ChibaCodeSigning.pfx" -Force
+                                                                                                                                                                                                                                                                                                                                                # 4. تنظيف وحذف ملف الشهادة بعد التوقيع
+                                                                                                                                                                                                                                                                                                                                                          Remove-Item "ChibaCodeSigning.pfx" -Force
 
-      - name: Publish Release via Tauri Action
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: mks-v__VERSION__
-          releaseName: "MKS v__VERSION__"
-          releaseBody: "نسخة تثبيت ويندوز جاهزة وموقعة"
-          releaseDraft: true
-          prerelease: false
+                                                                                                                                                                                                                                                                                                                                                                - name: Publish Release via Tauri Action
+                                                                                                                                                                                                                                                                                                                                                                        uses: tauri-apps/tauri-action@v0
+                                                                                                                                                                                                                                                                                                                                                                                env:
+                                                                                                                                                                                                                                                                                                                                                                                          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                                                                                                                                                                                                                                                                                                                                                                                                  with:
+                                                                                                                                                                                                                                                                                                                                                                                                            tagName: mks-v__VERSION__
+                                                                                                                                                                                                                                                                                                                                                                                                                      releaseName: "MKS v__VERSION__"
+                                                                                                                                                                                                                                                                                                                                                                                                                                releaseBody: "نسخة تثبيت ويندوز جاهزة وموقعة"
+                                                                                                                                                                                                                                                                                                                                                                                                                                          releaseDraft: true
+                                                                                                                                                                                                                                                                                                                                                                                                                                                    prerelease: false
+                                                                                                                                                                                                                                                                                                                                                                                                                                                    
