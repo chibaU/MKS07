@@ -9,8 +9,10 @@ import { SettingsPage } from "./components/SettingsPage";
 import { boxService, merchantService, productService, invoiceService, type Box, type Merchant, type Product } from "./services/db";
 import { makeDraft, draftFromInvoice } from "./components/InvoiceManager";
 import type { Draft } from "./components/invoice";
+// ميزة مزامنة الهاتف: نقطة دخول واحدة صغيرة (الصفحة نفسها تُحمَّل كسولاً داخل حدّ أخطاء خاص بها).
+import { PhoneSyncEntry } from "./features/phoneSync/PhoneSyncEntry";
 
-type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
+type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "phoneSync" | "settings";
 
 const SIDEBAR_WIDTH = 240;
 const newId = () => `d${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -225,6 +227,7 @@ export default function App() {
           />
         )}
         {activePage === "boxes"     && <BoxesPage onDataChange={refreshBoxes} />}
+        {activePage === "phoneSync" && <PhoneSyncEntry />}
         {activePage === "settings"  && <SettingsPage />}
       </main>
     </div>

@@ -1,7 +1,7 @@
 import { memo } from "react";
-import { Home, Users, Package, FileText, Archive, Settings } from "lucide-react";
+import { Home, Users, Package, FileText, Archive, Settings, Smartphone } from "lucide-react";
 
-type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
+type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "phoneSync" | "settings";
 
 interface SidebarProps {
   activePage: Page;
@@ -14,6 +14,7 @@ const navItems = [
   { id: "products" as Page, label: "المنتجات", icon: Package },
   { id: "invoices" as Page, label: "الفواتير", icon: FileText },
   { id: "boxes" as Page, label: "الصناديق", icon: Archive },
+  { id: "phoneSync" as Page, label: "مزامنة الهاتف", icon: Smartphone },
   { id: "settings" as Page, label: "الإعدادات", icon: Settings },
 ];
 

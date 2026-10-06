@@ -1,0 +1,32 @@
+# أداة تطوير مستقلة (ليست جزءاً من التطبيق ولا من بنائه): تجمّع محرّك مزامنة الهاتف الحقيقي
+# من src-tauri/src/phone_sync/engine كما هو (بلا نسخ) *بدون Tauri*، فتعمل اختباراته في ثوانٍ
+# ودون أي مكتبات نظام (GTK/WebKit):
+#     cd phone-sync-harness && cargo test
+# وتوفّر خادماً حقيقياً للاختبار التكاملي مع كود الهاتف:
+#     cd phone-sync-harness && cargo build --bin serve && cd .. && node --test "tests/phone-sync/*.test.mjs"
+# عند تغيير اعتماديات المحرّك في src-tauri/Cargo.toml حدّث هذه القائمة بما يطابقها.
+[package]
+name = "phone-sync-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring", "x509-parser"] }
+ring = "0.17"
+if-addrs = "0.15"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+time = { version = "0.3", features = ["formatting"] }
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

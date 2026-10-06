@@ -49,3 +49,26 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # يكتبه المستخدم ببصمة SHA-256 مخزَّنة في activation.rs، لا بنص الكود الصريح —
 # حتى لا يظهر الكود السري نفسه كنص قابل للقراءة داخل الملف التنفيذي النهائي.
 sha2 = "0.10"
+
+# ───────────────────────── ميزة مزامنة الهاتف (معزولة) ─────────────────────────
+# راجع AI_CONTEXT.md القسم 10 وتعليق رأس src/phone_sync/mod.rs. كل ما يلي يخدم
+# هذه الميزة وحدها: خادم HTTPS محلي (hyper + rustls) يقدّم تطبيق الهاتف ويستقبل
+# الفواتير. مزوّد التشفير ring صراحةً (لا aws-lc-rs: لا يحتاج NASM/CMake على ويندوز).
+# تعمل الخدمة في runtime خاص (tokio) منفصل عن runtime الخاص بـ Tauri.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# شهادة جذر محلية + شهادة خادم تغطي عناوين الشبكة (x509-parser لإعادة تحميل الجذر المحفوظ)
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring", "x509-parser"] }
+ring = "0.17"
+if-addrs = "0.15"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+time = { version = "0.3", features = ["formatting"] }
+# يضمّن مجلد phone-app/ (تطبيق الهاتف) داخل الملف التنفيذي. allow_missing: غياب
+# المجلد لا يكسر بناء MKS الأساسي.
+rust-embed = "8"
+
