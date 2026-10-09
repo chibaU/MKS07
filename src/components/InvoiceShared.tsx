@@ -4,6 +4,7 @@ import {
   useRef,
   useEffect,
   useMemo,
+  useCallback,
   memo,
   type ChangeEvent,
   type ClipboardEvent,
@@ -127,6 +128,21 @@ export function FieldLabel({ icon, children }: { icon: ReactNode; children: Reac
 // تقريب موحّد لمنزلتين عشريتين — نفس المنطق المستخدَم في
 // InvoiceForm.tsx و HomePage.tsx (القسم 6.1 من AI_CONTEXT.md).
 export const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// يُرجع دالة بهوية ثابتة (لا تتغير بين الرسمات) تستدعي دائماً آخر نسخة من fn.
+// الغرض: السماح لـ memo (صفوف الجدول، التبويبات، بطاقات الصناديق) بأن تعمل فعلاً
+// حتى حين تعتمد الدالة الأصلية على حالة تتغير مع كل ضغطة مفتاح. المرجع يُحدَّث بعد
+// كل commit (داخل effect)، والدالة المُرجَعة تُستدعى فقط من معالجات الأحداث، فهي
+// تقرأ دائماً أحدث نسخة وقت الحدث.
+export function useStableCallback<A extends unknown[], R>(
+  fn: (...args: A) => R,
+): (...args: A) => R {
+  const ref = useRef(fn);
+  useEffect(() => {
+    ref.current = fn;
+  });
+  return useCallback((...args: A) => ref.current(...args), []);
+}
 
 // ─── نظام المال: دج بالسنتيم ────────────────────────────────────────────────
 // نظام جزائري: كل مبلغ في التطبيق يُعرض بصيغة موحَّدة واحدة — فاصل آلاف "."،
@@ -528,21 +544,30 @@ function AutocompleteInner({
     }
   };
 
-  useEffect(() => {
-    if (highlighted >= 0 && highlighted < filtered.length && listRef.current) {
-      const el = listRef.current.children[highlighted] as HTMLElement;
-      el?.scrollIntoView({ block: "nearest" });
+  // تمييز عنصر عبر أسهم الكيبورد مع إبقائه ظاهراً داخل القائمة. يحرّك scrollTop
+  // للقائمة وحدها، ولا يستخدم scrollIntoView لأنه يحرّك كل أسلاف العنصر (الصفحة
+  // نفسها)، وهذا مع مرور الماوس فوق عنصر كان يولّد حلقة تمرير↔hover. مرور الماوس
+  // صار تمييزاً بصرياً فقط (onMouseEnter يضبط highlighted بلا تمرير).
+  const moveHighlight = (next: number) => {
+    setHighlighted(next);
+    const list = listRef.current;
+    const el = list?.children[next] as HTMLElement | undefined;
+    if (!list || !el) return;
+    if (el.offsetTop < list.scrollTop) {
+      list.scrollTop = el.offsetTop;
+    } else if (el.offsetTop + el.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = el.offsetTop + el.offsetHeight - list.clientHeight;
     }
-  }, [filtered.length, highlighted]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open || filtered.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
+      moveHighlight(Math.min(highlighted + 1, filtered.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlighted((h) => Math.max(h - 1, 0));
+      moveHighlight(Math.max(highlighted - 1, 0));
     } else if (e.key === "Enter" && highlighted >= 0) {
       e.preventDefault();
       const item = filtered[highlighted];

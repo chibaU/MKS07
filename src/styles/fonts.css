@@ -8,12 +8,20 @@
        url('./fonts/Cairo-VariableFont_slnt,wght.ttf') format('truetype');
 }
 
-/* إجبار المتصفح والمحرك على تصفير قيمة الميول (slnt 0) للخط المتغير */
+/* الخط على كل العناصر: حقول الإدخال والأزرار لا ترثه تلقائياً */
 * {
   font-family: 'Cairo', sans-serif !important;
-  font-variation-settings: "slnt" 0, "wght" var(--font-weight, 400);
 }
 
-body, html, #root {
+/* تصفير الميل (slnt) مرة واحدة على الجذر بدل كل عنصر، بلا لمس محور الوزن.
+   ملاحظة: القاعدة القديمة كانت تفرض "wght" var(--font-weight, 400) على كل عنصر،
+   و--font-weight غير معرَّف في أي مكان، فكانت تثبّت الوزن على 400 وتُبطل
+   fontWeight: 700 في كل التطبيق. إن أردت الشكل القديم حرفياً أضف "wght" 400
+   إلى القاعدتين التاليتين. */
+html, body, #root {
+  font-variation-settings: "slnt" 0;
   font-style: normal !important;
+}
+input, button, select, textarea {
+  font-variation-settings: "slnt" 0;
 }

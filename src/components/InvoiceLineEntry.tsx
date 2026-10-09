@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, memo } from "react";
 import { Plus, Package, Tag, Scale, Banknote } from "lucide-react";
 import type { DraftBox, DraftRow } from "./invoice";
 import { StaleReferenceError, type Product } from "../services/db";
@@ -11,6 +11,7 @@ import {
   round2,
   Autocomplete,
   MoneyInput,
+  useStableCallback,
   type Suggestion,
   safeEvaluateExpression,
 } from "./InvoiceShared";
@@ -57,6 +58,113 @@ export function emptyEntry(
     })),
   };
 }
+
+// ─── بطاقة صندوق واحد ────────────────────────────────────────────────────────
+// memo: عند الكتابة في أي حقل آخر (منتج، وزن، سعر) أو تغيير عدد صندوق آخر لا
+// تتغير بيانات هذه البطاقة (الكائن box يحتفظ بهويته في updateBox)، فلا يُعاد
+// رسمها. كان كل حرف يُكتب يُعيد رسم كل البطاقات بأيقوناتها.
+const BoxCard = memo(function BoxCard({
+  box,
+  onCountChange,
+}: {
+  box: DraftBox;
+  onCountChange: (boxId: number, val: string) => void;
+}) {
+  const active = box.countInput > 0;
+  return (
+    <div
+      className="le-box-card"
+      title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
+      style={{
+        minWidth: 0,
+        padding: "10px",
+        borderRadius: "10px",
+        border: active ? "1.5px solid #0F766E" : "1.5px solid #E2E8F0",
+        backgroundColor: active ? "#F0FDFA" : "#FFFFFF",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "7px" }}>
+          <Package
+            size={20}
+            strokeWidth={2}
+            aria-hidden="true"
+            style={{ flexShrink: 0, marginTop: "2px", color: active ? "#0F766E" : "#94A3B8" }}
+          />
+          <div
+            style={{
+              minWidth: 0,
+              color: active ? "#134E4A" : "#1E293B",
+              fontSize: "18px",
+              fontWeight: 700,
+              lineHeight: "24px",
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              wordBreak: "break-word",
+            }}
+          >
+            {box.name}
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "6px",
+            fontSize: "12px",
+            lineHeight: "16px",
+            color: "#64748B",
+            fontWeight: 500,
+          }}
+        >
+          <span>فارغ: {box.emptyWeight} كغ</span>
+          {active && (
+            <span style={{ color: "#0F766E", fontWeight: 700 }}>
+              {round2(box.countInput * box.emptyWeight).toFixed(2)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* العدد: كتابة مباشرة، و↑/↓ للزيادة والإنقاص بالكيبورد */}
+      <input
+        className="le-box-input"
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        aria-label={`عدد ${box.name}`}
+        value={box.countInput || ""}
+        placeholder="0"
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => onCountChange(box.id, e.target.value.replace(/\D/g, ""))}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onCountChange(box.id, String(box.countInput + (e.key === "ArrowUp" ? 1 : -1)));
+          }
+        }}
+        style={{
+          width: "100%",
+          height: "38px",
+          boxSizing: "border-box",
+          borderRadius: "8px",
+          border: active ? "1.5px solid #0F766E" : "1.5px solid #CBD5E1",
+          backgroundColor: "#FFFFFF",
+          color: "#0F172A",
+          fontSize: "17px",
+          fontWeight: 700,
+          textAlign: "center",
+          fontFamily: "'Cairo', sans-serif",
+        }}
+      />
+    </div>
+  );
+});
 
 interface InvoiceLineEntryProps {
   entry: EntryState;
@@ -151,16 +259,16 @@ export function InvoiceLineEntry({
     [evaluateScaleWeightInput],
   );
 
-  const updateBox = useCallback(
-    (boxId: number, val: string) =>
-      handleFieldChange({
-        boxes: entry.boxes.map((b) =>
-          b.id === boxId
-            ? { ...b, countInput: Math.max(0, Math.floor(Number(val) || 0)) }
-            : b,
-        ),
-      }),
-    [entry.boxes, handleFieldChange],
+  // هوية ثابتة (useStableCallback) كي تعمل memo على BoxCard؛ الجسم يقرأ دائماً
+  // أحدث entry.boxes. الكائنات غير المعدَّلة تحتفظ بهويتها في map.
+  const updateBox = useStableCallback((boxId: number, val: string) =>
+    handleFieldChange({
+      boxes: entry.boxes.map((b) =>
+        b.id === boxId
+          ? { ...b, countInput: Math.max(0, Math.floor(Number(val) || 0)) }
+          : b,
+      ),
+    }),
   );
 
   const scaleWeight = useMemo(
@@ -303,103 +411,9 @@ export function InvoiceLineEntry({
           <div style={{ maxHeight: "340px", overflowY: "auto", margin: "-2px", padding: "2px" }}>
             {entry.boxes.length > 0 ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
-                {entry.boxes.map((box) => {
-                  const active = box.countInput > 0;
-                  return (
-                    <div
-                      key={box.id}
-                      className="le-box-card"
-                      title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
-                      style={{
-                        minWidth: 0,
-                        padding: "10px",
-                        borderRadius: "10px",
-                        border: active ? "1.5px solid #0F766E" : "1.5px solid #E2E8F0",
-                        backgroundColor: active ? "#F0FDFA" : "#FFFFFF",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: "7px" }}>
-                          <Package
-                            size={20}
-                            strokeWidth={2}
-                            aria-hidden="true"
-                            style={{ flexShrink: 0, marginTop: "2px", color: active ? "#0F766E" : "#94A3B8" }}
-                          />
-                          <div
-                            style={{
-                              minWidth: 0,
-                              color: active ? "#134E4A" : "#1E293B",
-                              fontSize: "18px",
-                              fontWeight: 700,
-                              lineHeight: "24px",
-                              overflow: "hidden",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              wordBreak: "break-word",
-                            }}
-                          >
-                            {box.name}
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: "6px",
-                            fontSize: "12px",
-                            lineHeight: "16px",
-                            color: "#64748B",
-                            fontWeight: 500,
-                          }}
-                        >
-                          <span>فارغ: {box.emptyWeight} كغ</span>
-                          {active && (
-                            <span style={{ color: "#0F766E", fontWeight: 700 }}>
-                              {round2(box.countInput * box.emptyWeight).toFixed(2)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* العدد: كتابة مباشرة، و↑/↓ للزيادة والإنقاص بالكيبورد */}
-                      <input
-                        className="le-box-input"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        aria-label={`عدد ${box.name}`}
-                        value={box.countInput || ""}
-                        placeholder="0"
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => updateBox(box.id, e.target.value.replace(/\D/g, ""))}
-                        onKeyDown={(e) => {
-                          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                            e.preventDefault();
-                            updateBox(box.id, String(box.countInput + (e.key === "ArrowUp" ? 1 : -1)));
-                          }
-                        }}
-                        style={{
-                          width: "100%",
-                          height: "38px",
-                          boxSizing: "border-box",
-                          borderRadius: "8px",
-                          border: active ? "1.5px solid #0F766E" : "1.5px solid #CBD5E1",
-                          backgroundColor: "#FFFFFF",
-                          color: "#0F172A",
-                          fontSize: "17px",
-                          fontWeight: 700,
-                          textAlign: "center",
-                          fontFamily: "'Cairo', sans-serif",
-                        }}
-                      />
-                    </div>
-                  );
-                })}
+                {entry.boxes.map((box) => (
+                  <BoxCard key={box.id} box={box} onCountChange={updateBox} />
+                ))}
               </div>
             ) : (
               <div style={{ padding: "16px", textAlign: "center", color: "#475569", fontSize: "14px" }}>

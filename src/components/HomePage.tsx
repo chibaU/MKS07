@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import type { Draft, DraftRow } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
 import { makeDraft, draftFromInvoice } from "./InvoiceManager";
-import { round2 } from "./InvoiceShared";
+import { round2, useStableCallback } from "./InvoiceShared";
 import { invoiceService, type Merchant, type Product, type Box } from "../services/db";
 import { printInvoice } from "../services/print";
 
@@ -23,6 +23,78 @@ interface HomePageProps {
 }
 
 const MemoInvoiceForm = memo(InvoiceForm);
+
+// ─── تبويب واحد ──────────────────────────────────────────────────────────────
+// memo: عند الكتابة في الفاتورة النشطة لا تتغير بيانات بقية التبويبات (label،
+// isActive، busy كلها قيم بسيطة)، ودوال onSelect/onClose ثابتة الهوية، فلا يُعاد
+// رسم التبويبات الخمسة عشر مع كل ضغطة مفتاح. التنقل بين التبويبات والإغلاق
+// يعملان كما كانا تماماً.
+const TabItem = memo(function TabItem({
+  id,
+  label,
+  isActive,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  id: string;
+  label: string;
+  isActive: boolean;
+  busy: boolean;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+}) {
+  return (
+    <div
+      onClick={() => onSelect(id)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "14px 18px 13px",
+        cursor: "pointer",
+        borderBottom: isActive ? "3px solid #2563EB" : "3px solid transparent",
+        backgroundColor: isActive ? "white" : "#F1F5F9",
+        borderRadius: "8px 8px 0 0",
+        color: isActive ? "#1D4ED8" : "#334155",
+        fontWeight: isActive ? 700 : 500,
+        fontSize: "16px",
+        whiteSpace: "nowrap",
+        userSelect: "none",
+        // خصائص محددة بدل "all": لا يُراقَب كل تغيير تخطيط محتمل.
+        transition: "background-color 0.15s, color 0.15s, border-color 0.15s",
+        marginBottom: isActive ? "-2px" : "0",
+      }}
+    >
+      <span>{label}</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!busy) onClose(id);
+        }}
+        disabled={busy}
+        style={{
+          border: "none",
+          background: "none",
+          cursor: busy ? "not-allowed" : "pointer",
+          color: busy ? "#CBD5E1" : isActive ? "#60A5FA" : "#94A3B8",
+          display: "flex",
+          alignItems: "center",
+          padding: "3px",
+          borderRadius: "4px",
+        }}
+        onMouseEnter={(e) => {
+          if (!busy) (e.currentTarget as HTMLButtonElement).style.color = "#EF4444";
+        }}
+        onMouseLeave={(e) => {
+          if (!busy) (e.currentTarget as HTMLButtonElement).style.color = isActive ? "#60A5FA" : "#94A3B8";
+        }}
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+});
 
 export function HomePage({
   realBoxes,
@@ -90,6 +162,10 @@ export function HomePage({
       doClose(id);
     }
   }, [drafts, doClose]);
+
+  // نسخة بهوية ثابتة من requestClose (تعتمد على drafts التي تتغير مع كل ضغطة)
+  // كي لا يُبطل تغييرها memo على التبويبات. تستدعي دائماً أحدث requestClose.
+  const stableRequestClose = useStableCallback(requestClose);
 
   // ── إدراج بند (أول بند أو بند لاحق) — القلب التشغيلي لدمج الشاشتين ──
   // ملاحظة حرجة (القسم 3 نقطة 1): row الواردة من InvoiceLineEntry تحمل id
@@ -261,59 +337,19 @@ export function HomePage({
           flexWrap: "nowrap",
         }}
       >
-        {drafts.map((draft) => {
-          const isActive = draft.id === activeId;
-          const label = draft.merchantName.trim() || "فاتورة جديدة";
-          // القسم 7 (نقطة 14): تعطيل زر إغلاق التبويب أثناء أي عملية حفظ
-          // متعلقة ببند أو بإغلاق فاتورة لنفس التبويب تحديداً.
-          const tabBusy = draft.isSavingLine || draft.isClosing;
-          return (
-            <div
-              key={draft.id}
-              onClick={() => setActiveId(draft.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "14px 18px 13px",
-                cursor: "pointer",
-                borderBottom: isActive ? "3px solid #2563EB" : "3px solid transparent",
-                backgroundColor: isActive ? "white" : "#F1F5F9",
-                borderRadius: "8px 8px 0 0",
-                color: isActive ? "#1D4ED8" : "#334155",
-                fontWeight: isActive ? 700 : 500,
-                fontSize: "16px",
-                whiteSpace: "nowrap",
-                userSelect: "none",
-                transition: "all 0.15s",
-                marginBottom: isActive ? "-2px" : "0",
-              }}
-            >
-              <span>{label}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!tabBusy) requestClose(draft.id);
-                }}
-                disabled={tabBusy}
-                style={{
-                  border: "none",
-                  background: "none",
-                  cursor: tabBusy ? "not-allowed" : "pointer",
-                  color: tabBusy ? "#CBD5E1" : (isActive ? "#60A5FA" : "#94A3B8"),
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "3px",
-                  borderRadius: "4px",
-                }}
-                onMouseEnter={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = "#EF4444"; }}
-                onMouseLeave={(e) => { if (!tabBusy) (e.currentTarget as HTMLButtonElement).style.color = isActive ? "#60A5FA" : "#94A3B8"; }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          );
-        })}
+        {/* القسم 7 (نقطة 14): تعطيل زر إغلاق التبويب أثناء أي عملية حفظ
+            متعلقة ببند أو بإغلاق فاتورة لنفس التبويب تحديداً (busy). */}
+        {drafts.map((draft) => (
+          <TabItem
+            key={draft.id}
+            id={draft.id}
+            label={draft.merchantName.trim() || "فاتورة جديدة"}
+            isActive={draft.id === activeId}
+            busy={draft.isSavingLine || draft.isClosing}
+            onSelect={setActiveId}
+            onClose={stableRequestClose}
+          />
+        ))}
 
         <button
           onClick={addDraft}

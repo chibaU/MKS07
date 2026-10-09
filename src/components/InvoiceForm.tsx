@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect, useRef } from "react";
+import { useMemo, useCallback, useState, useEffect, useRef, memo } from "react";
 import { Trash2, Copy, Save, Printer, X, Hash, Store } from "lucide-react";
 import type { Draft, DraftBox, DraftRow } from "./invoice";
 import {
@@ -17,6 +17,7 @@ import {
   FieldLabel,
   FIELD_CSS,
   FIELD_VARS,
+  useStableCallback,
   type Suggestion,
 } from "./InvoiceShared";
 import { InvoiceLineEntry } from "./InvoiceLineEntry";
@@ -32,6 +33,134 @@ import { InvoiceLineEntry } from "./InvoiceLineEntry";
 // عدد شارات "الصناديق حسب النوع" الظاهرة قبل الطيّ التلقائي في صف الإجماليات؛
 // ما زاد عنه يُخفى خلف زر "+N أخرى" لتبقى الإجماليات قريبة من أسفل الجدول.
 const BOX_TYPES_COLLAPSED_LIMIT = 8;
+
+// ─── صف بند واحد في الجدول ───────────────────────────────────────────────────
+// memo: عند الكتابة في أي حقل إدخال (كل ضغطة مفتاح) لا تتغير بيانات الصفوف
+// (draft.rows يحتفظ بهويته) ولا الدوال الممرَّرة (هويات ثابتة عبر
+// useStableCallback)، فلا يُعاد رسم أي صف. كان كل حرف يُعيد رسم كل الصفوف
+// بأيقوناتها وأزرارها.
+interface InvoiceRowViewProps {
+  row: DraftRow;
+  index: number;
+  isSelected: boolean;
+  disabled: boolean;
+  onRowClick: (e: React.MouseEvent<HTMLTableRowElement>, rowId: number, index: number) => void;
+  onDuplicate: (row: DraftRow) => void;
+  onDelete: (rowId: number) => void;
+}
+
+const InvoiceRowView = memo(function InvoiceRowView({
+  row,
+  index,
+  isSelected,
+  disabled,
+  onRowClick,
+  onDuplicate,
+  onDelete,
+}: InvoiceRowViewProps) {
+  return (
+    <tr
+      onClick={(e) => onRowClick(e, row.id, index)}
+      onMouseDown={(e) => {
+        // يمنع تحديد نص المتصفح الافتراضي أثناء Shift+ضغط لتحديد نطاق
+        if (e.shiftKey) e.preventDefault();
+      }}
+      title="اضغط للتحديد — Ctrl+ضغط لتحديد بنود متفرقة، Shift+ضغط لتحديد نطاق متتالٍ"
+      style={{
+        backgroundColor: isSelected ? "#DBEAFE" : index % 2 === 0 ? "white" : "#FAFBFC",
+        cursor: "pointer",
+        userSelect: "none",
+      }}
+    >
+      <td style={{ ...c.td, color: "#475569", fontWeight: 600, width: "56px" }}>{index + 1}</td>
+      <td style={{ ...c.td, fontWeight: 600 }}>{row.product}</td>
+      <td style={c.td}>{row.weight.toFixed(2)}</td>
+      <td style={{ ...c.td, color: "#0F766E", fontWeight: 700 }}>{formatMoney(row.price)} دج</td>
+      <td style={{ ...c.td, fontSize: "14px", color: "#334155" }}>
+        {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {row.boxesSnapshot.map((bs, idx) => (
+              <span
+                key={idx}
+                style={{
+                  backgroundColor: "#F1F5F9",
+                  border: "1px solid #E2E8F0",
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                }}
+              >
+                {bs.name ?? `#${bs.id}`} ×{bs.boxCount}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span style={{ color: "#94A3B8" }}>—</span>
+        )}
+      </td>
+      <td style={{ ...c.td, color: "#2563EB", fontWeight: 700, fontSize: "17px" }}>
+        {formatMoney(row.weight * row.price)} دج
+      </td>
+      <td style={c.td}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* نسخ: يملأ نموذج الإدخال فقط (لا يضيف ولا يحذف) — متاح لكل البنود
+              حتى البند الوحيد. يُعطَّل فقط أثناء حفظ بند جارٍ (isSavingLine)
+              كي لا يُمحى المنسوخ بتصفير النموذج الذي يعقب نجاح ذلك الحفظ. */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate(row);
+            }}
+            disabled={disabled}
+            title="نسخ البند إلى نموذج الإدخال"
+            style={{
+              border: "none",
+              borderRadius: "6px",
+              padding: "8px 14px",
+              cursor: disabled ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "14px",
+              fontFamily: "'Cairo', sans-serif",
+              fontWeight: 600,
+              backgroundColor: disabled ? "#F1F5F9" : "#EFF6FF",
+              color: disabled ? "#94A3B8" : "#2563EB",
+            }}
+          >
+            <Copy size={15} />
+            نسخ
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(row.id);
+            }}
+            disabled={disabled}
+            style={{
+              border: "none",
+              borderRadius: "6px",
+              padding: "8px 14px",
+              cursor: disabled ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "14px",
+              fontFamily: "'Cairo', sans-serif",
+              fontWeight: 600,
+              backgroundColor: disabled ? "#F1F5F9" : "#FEF2F2",
+              color: disabled ? "#94A3B8" : "#DC2626",
+            }}
+          >
+            <Trash2 size={15} />
+            حذف
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
 
 interface InvoiceFormProps {
   draft: Draft;
@@ -92,40 +221,40 @@ export function InvoiceForm({
   // الثابتة (القسم 2) invoiceId !== null ⟺ rows.length > 0 تبقى صحيحة دائماً.
   // الحذف الكامل للفاتورة متاح فقط من أرشيف الفواتير (invoiceService.deleteInvoice).
   // زر "نسخ" لا يخضع لهذه القاعدة إطلاقاً (لا يحذف ولا يُضيف شيئاً).
-  const deleteRow = useCallback(
-    async (rowId: number) => {
-      if (draft.rows.length === 1) {
-        alert("لا يمكن حذف البند الوحيد في الفاتورة.");
-        return;
-      }
+  //
+  // useStableCallback: هوية ثابتة كي تعمل memo على InvoiceRowView؛ الجسم يقرأ
+  // دائماً أحدث draft وقت النقر.
+  const deleteRow = useStableCallback(async (rowId: number) => {
+    if (draft.rows.length === 1) {
+      alert("لا يمكن حذف البند الوحيد في الفاتورة.");
+      return;
+    }
 
-      if (draft.invoiceId === null || !draft.merchantId) {
-        // احترازي بحت: لا يجب أن يحدث فعلياً بحكم القاعدة الثابتة في القسم 2
-        onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
-        return;
-      }
+    if (draft.invoiceId === null || !draft.merchantId) {
+      // احترازي بحت: لا يجب أن يحدث فعلياً بحكم القاعدة الثابتة في القسم 2
+      onChange({ rows: draft.rows.filter((r) => r.id !== rowId) });
+      return;
+    }
 
-      onChange({ isSavingLine: true });
-      try {
-        const remainingRows = draft.rows.filter((r) => r.id !== rowId);
-        const totalAmount = round2(
-          remainingRows.reduce((sum, r) => sum + r.weight * r.price, 0),
-        );
-        await invoiceService.deleteDetailAndTouch(
-          draft.invoiceId,
-          rowId,
-          draft.merchantId,
-          totalAmount,
-        );
-        onChange({ rows: remainingRows, isSavingLine: false });
-      } catch (error) {
-        console.error("خطأ أثناء حذف البند:", error);
-        onChange({ isSavingLine: false });
-        alert("تعذر حذف البند، يرجى مراجعة سجل الأخطاء.");
-      }
-    },
-    [draft, onChange],
-  );
+    onChange({ isSavingLine: true });
+    try {
+      const remainingRows = draft.rows.filter((r) => r.id !== rowId);
+      const totalAmount = round2(
+        remainingRows.reduce((sum, r) => sum + r.weight * r.price, 0),
+      );
+      await invoiceService.deleteDetailAndTouch(
+        draft.invoiceId,
+        rowId,
+        draft.merchantId,
+        totalAmount,
+      );
+      onChange({ rows: remainingRows, isSavingLine: false });
+    } catch (error) {
+      console.error("خطأ أثناء حذف البند:", error);
+      onChange({ isSavingLine: false });
+      alert("تعذر حذف البند، يرجى مراجعة سجل الأخطاء.");
+    }
+  });
 
   // ─── نسخ بند إلى نموذج الإدخال ───────────────────────────────────────────
   // لا يُعدِّل الجدول ولا الفاتورة ولا رأسها (التاجر/الرقم): يملأ حقول نموذج
@@ -147,92 +276,89 @@ export function InvoiceForm({
   const lineEntryRef = useRef<HTMLDivElement>(null);
   const duplicatingRef = useRef(false); // يمنع تداخل نسختين متتاليتين أثناء الانتظار على القاعدة
 
-  const handleDuplicateRow = useCallback(
-    async (row: DraftRow) => {
-      if (duplicatingRef.current) return;
-      duplicatingRef.current = true;
+  const handleDuplicateRow = useStableCallback(async (row: DraftRow) => {
+    if (duplicatingRef.current) return;
+    duplicatingRef.current = true;
 
-      try {
-        const usedBoxes = row.boxesSnapshot ?? [];
+    try {
+      const usedBoxes = row.boxesSnapshot ?? [];
 
-        // قائمة الصناديق التي سيُبنى منها نموذج الإدخال (مرتبة بالاسم كما في makeDraft)
-        let boxList: Pick<DraftBox, "id" | "name" | "emptyWeight">[];
+      // قائمة الصناديق التي سيُبنى منها نموذج الإدخال (مرتبة بالاسم كما في makeDraft)
+      let boxList: Pick<DraftBox, "id" | "name" | "emptyWeight">[];
 
-        if (usedBoxes.length === 0) {
-          // بند بلا صناديق: لا حاجة لأي عملية قاعدة، فقط تصفير كل الأعداد
-          boxList = draft.boxes;
-        } else {
-          await boxService.revealBoxes(usedBoxes.map((b) => b.id));
-          const freshBoxes = await onRefreshBoxes();
-          if (freshBoxes === null) {
-            alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
-            return;
-          }
-          boxList = freshBoxes.map((b) => ({
-            id: b.id,
-            name: b.name,
-            emptyWeight: b.weight,
-          }));
-
-          // صندوق مستخدَم لا يوجد في القاعدة إطلاقاً (حُذف) — لا يمكن إعادة بناء
-          // وزن الميزان بدقة، فنوقف النسخ بدل ملء نموذج بقيم خاطئة.
-          const known = new Set(boxList.map((b) => b.id));
-          if (usedBoxes.some((b) => !known.has(b.id))) {
-            alert("أحد الصناديق المستخدمة في هذا البند لم يعد موجوداً في النظام — تعذر نسخ البند.");
-            return;
-          }
+      if (usedBoxes.length === 0) {
+        // بند بلا صناديق: لا حاجة لأي عملية قاعدة، فقط تصفير كل الأعداد
+        boxList = draft.boxes;
+      } else {
+        await boxService.revealBoxes(usedBoxes.map((b) => b.id));
+        const freshBoxes = await onRefreshBoxes();
+        if (freshBoxes === null) {
+          alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
+          return;
         }
-
-        // تصفير كل الأعداد ثم وضع أعداد البند المنسوخ فقط
-        const copiedCounts = new Map(usedBoxes.map((b) => [b.id, b.boxCount]));
-        const nextBoxes: DraftBox[] = boxList.map((b) => ({
+        boxList = freshBoxes.map((b) => ({
           id: b.id,
           name: b.name,
-          emptyWeight: b.emptyWeight,
-          countInput: copiedCounts.get(b.id) ?? 0,
+          emptyWeight: b.weight,
         }));
 
-        // وزن الميزان = الوزن الصافي + مجموع (عدد × وزن فارغ) للصناديق المستخدمة،
-        // بنفس صيغة totalEmptyWeight في InvoiceLineEntry ونفس round2.
-        const totalEmptyWeight = nextBoxes.reduce(
-          (sum, b) => sum + b.countInput * b.emptyWeight,
-          0,
-        );
-        const scaleWeight = round2(row.weight + totalEmptyWeight);
-
-        // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج.
-        // سعر بسنتيم غير صفري (بند قديم من قبل MoneyInput، مثل 87,50) لا يُدوَّر أبداً:
-        // التدوير يغيّر المبلغ بحجم الكمية (87,5 × 10.000 كغ ← فرق 5.000 دج)، ولا يمكن
-        // وضعه كما هو في MoneyInput لأنه يتجاهل الفاصلة فيقرؤه ×10. فيُترك الحقل فارغاً
-        // ويُنبَّه المستخدم ليُدخل السعر بنفسه عن قصد.
-        const priceIsWhole = Number.isInteger(row.price);
-        onChange({
-          productInput: row.product,
-          productId: row.productId ?? undefined,
-          scaleWeightInput: String(scaleWeight),
-          priceInput: row.price > 0 && priceIsWhole ? String(row.price) : "",
-          boxes: nextBoxes,
-        });
-        setLineEntryKey((k) => k + 1);
-
-        // الجدول أسفل النموذج: بدون هذا قد يبدو الزر بلا أثر لمن ضغطه من أسفل صفحة طويلة
-        lineEntryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-        if (row.price > 0 && !priceIsWhole) {
-          alert(
-            `سعر البند الأصلي (${formatMoney(row.price)} دج) يحتوي سنتيماً ولا يمكن إدخاله في خانة السعر، ` +
-              "فتُرك الحقل فارغاً كي لا يُدوَّر السعر بصمت. أدخل السعر يدوياً.",
-          );
+        // صندوق مستخدَم لا يوجد في القاعدة إطلاقاً (حُذف) — لا يمكن إعادة بناء
+        // وزن الميزان بدقة، فنوقف النسخ بدل ملء نموذج بقيم خاطئة.
+        const known = new Set(boxList.map((b) => b.id));
+        if (usedBoxes.some((b) => !known.has(b.id))) {
+          alert("أحد الصناديق المستخدمة في هذا البند لم يعد موجوداً في النظام — تعذر نسخ البند.");
+          return;
         }
-      } catch (error) {
-        console.error("خطأ أثناء نسخ البند:", error);
-        alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
-      } finally {
-        duplicatingRef.current = false;
       }
-    },
-    [draft.boxes, onChange, onRefreshBoxes],
-  );
+
+      // تصفير كل الأعداد ثم وضع أعداد البند المنسوخ فقط
+      const copiedCounts = new Map(usedBoxes.map((b) => [b.id, b.boxCount]));
+      const nextBoxes: DraftBox[] = boxList.map((b) => ({
+        id: b.id,
+        name: b.name,
+        emptyWeight: b.emptyWeight,
+        countInput: copiedCounts.get(b.id) ?? 0,
+      }));
+
+      // وزن الميزان = الوزن الصافي + مجموع (عدد × وزن فارغ) للصناديق المستخدمة،
+      // بنفس صيغة totalEmptyWeight في InvoiceLineEntry ونفس round2.
+      const totalEmptyWeight = nextBoxes.reduce(
+        (sum, b) => sum + b.countInput * b.emptyWeight,
+        0,
+      );
+      const scaleWeight = round2(row.weight + totalEmptyWeight);
+
+      // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج.
+      // سعر بسنتيم غير صفري (بند قديم من قبل MoneyInput، مثل 87,50) لا يُدوَّر أبداً:
+      // التدوير يغيّر المبلغ بحجم الكمية (87,5 × 10.000 كغ ← فرق 5.000 دج)، ولا يمكن
+      // وضعه كما هو في MoneyInput لأنه يتجاهل الفاصلة فيقرؤه ×10. فيُترك الحقل فارغاً
+      // ويُنبَّه المستخدم ليُدخل السعر بنفسه عن قصد.
+      const priceIsWhole = Number.isInteger(row.price);
+      onChange({
+        productInput: row.product,
+        productId: row.productId ?? undefined,
+        scaleWeightInput: String(scaleWeight),
+        priceInput: row.price > 0 && priceIsWhole ? String(row.price) : "",
+        boxes: nextBoxes,
+      });
+      setLineEntryKey((k) => k + 1);
+
+      // الجدول أسفل النموذج: بدون هذا قد يبدو الزر بلا أثر لمن ضغطه من أسفل صفحة طويلة
+      lineEntryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      if (row.price > 0 && !priceIsWhole) {
+        alert(
+          `سعر البند الأصلي (${formatMoney(row.price)} دج) يحتوي سنتيماً ولا يمكن إدخاله في خانة السعر، ` +
+            "فتُرك الحقل فارغاً كي لا يُدوَّر السعر بصمت. أدخل السعر يدوياً.",
+        );
+      }
+    } catch (error) {
+      console.error("خطأ أثناء نسخ البند:", error);
+      alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
+    } finally {
+      duplicatingRef.current = false;
+    }
+  });
 
   const grandTotal = useMemo(
     () => draft.rows.reduce((sum, r) => sum + r.weight * r.price, 0),
@@ -309,7 +435,9 @@ export function InvoiceForm({
     setAnchorRowId((prev) => (prev !== null && !idSet.has(prev) ? null : prev));
   }, [draft.rows]);
 
-  const handleRowClick = useCallback(
+  // useStableCallback: هوية ثابتة لتعمل memo على InvoiceRowView؛ الجسم يقرأ دائماً
+  // أحدث anchorRowId وdraft.rows وقت النقر.
+  const handleRowClick = useStableCallback(
     (e: React.MouseEvent<HTMLTableRowElement>, rowId: number, index: number) => {
       if (e.shiftKey) {
         const anchorIdx =
@@ -333,7 +461,6 @@ export function InvoiceForm({
       setSelectedIds((prev) => (prev.size === 1 && prev.has(rowId) ? new Set() : new Set([rowId])));
       setAnchorRowId(rowId);
     },
-    [anchorRowId, draft.rows],
   );
 
   const clearSelection = useCallback(() => {
@@ -531,120 +658,18 @@ export function InvoiceForm({
             </tr>
           </thead>
           <tbody>
-            {draft.rows.map((row, i) => {
-              const isSelected = selectedIds.has(row.id);
-              return (
-                <tr
-                  key={row.id}
-                  onClick={(e) => handleRowClick(e, row.id, i)}
-                  onMouseDown={(e) => {
-                    // يمنع تحديد نص المتصفح الافتراضي أثناء Shift+ضغط لتحديد نطاق
-                    if (e.shiftKey) e.preventDefault();
-                  }}
-                  title="اضغط للتحديد — Ctrl+ضغط لتحديد بنود متفرقة، Shift+ضغط لتحديد نطاق متتالٍ"
-                  style={{
-                    backgroundColor: isSelected ? "#DBEAFE" : i % 2 === 0 ? "white" : "#FAFBFC",
-                    cursor: "pointer",
-                    userSelect: "none",
-                  }}
-                >
-                  <td style={{ ...c.td, color: "#475569", fontWeight: 600, width: "56px" }}>
-                    {i + 1}
-                  </td>
-                  <td style={{ ...c.td, fontWeight: 600 }}>{row.product}</td>
-                  <td style={c.td}>{row.weight.toFixed(2)}</td>
-                  <td style={{ ...c.td, color: "#0F766E", fontWeight: 700 }}>
-                    {formatMoney(row.price)} دج
-                  </td>
-                  <td style={{ ...c.td, fontSize: "14px", color: "#334155" }}>
-                    {row.boxesSnapshot && row.boxesSnapshot.length > 0 ? (
-                      <div
-                        style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}
-                      >
-                        {row.boxesSnapshot.map((bs, idx) => {
-                          return (
-                            <span
-                              key={idx}
-                              style={{
-                                backgroundColor: "#F1F5F9",
-                                border: "1px solid #E2E8F0",
-                                padding: "4px 8px",
-                                borderRadius: "4px",
-                                fontSize: "13px",
-                                fontWeight: 500,
-                              }}
-                            >
-                              {bs.name ?? `#${bs.id}`} ×{bs.boxCount}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <span style={{ color: "#94A3B8" }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ ...c.td, color: "#2563EB", fontWeight: 700, fontSize: "17px" }}>
-                    {formatMoney(row.weight * row.price)} دج
-                  </td>
-                  <td style={c.td}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      {/* نسخ: يملأ نموذج الإدخال فقط (لا يضيف ولا يحذف) — متاح لكل البنود
-                          حتى البند الوحيد. يُعطَّل فقط أثناء حفظ بند جارٍ (isSavingLine)
-                          كي لا يُمحى المنسوخ بتصفير النموذج الذي يعقب نجاح ذلك الحفظ. */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDuplicateRow(row);
-                        }}
-                        disabled={draft.isSavingLine}
-                        title="نسخ البند إلى نموذج الإدخال"
-                        style={{
-                          border: "none",
-                          borderRadius: "6px",
-                          padding: "8px 14px",
-                          cursor: draft.isSavingLine ? "not-allowed" : "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "5px",
-                          fontSize: "14px",
-                          fontFamily: "'Cairo', sans-serif",
-                          fontWeight: 600,
-                          backgroundColor: draft.isSavingLine ? "#F1F5F9" : "#EFF6FF",
-                          color: draft.isSavingLine ? "#94A3B8" : "#2563EB",
-                        }}
-                      >
-                        <Copy size={15} />
-                        نسخ
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteRow(row.id);
-                        }}
-                        disabled={draft.isSavingLine}
-                        style={{
-                          border: "none",
-                          borderRadius: "6px",
-                          padding: "8px 14px",
-                          cursor: draft.isSavingLine ? "not-allowed" : "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "5px",
-                          fontSize: "14px",
-                          fontFamily: "'Cairo', sans-serif",
-                          fontWeight: 600,
-                          backgroundColor: draft.isSavingLine ? "#F1F5F9" : "#FEF2F2",
-                          color: draft.isSavingLine ? "#94A3B8" : "#DC2626",
-                        }}
-                      >
-                        <Trash2 size={15} />
-                        حذف
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+            {draft.rows.map((row, i) => (
+              <InvoiceRowView
+                key={row.id}
+                row={row}
+                index={i}
+                isSelected={selectedIds.has(row.id)}
+                disabled={draft.isSavingLine}
+                onRowClick={handleRowClick}
+                onDuplicate={handleDuplicateRow}
+                onDelete={deleteRow}
+              />
+            ))}
 
             {/* المجموع اللحظي للبنود المحددة — يظهر فقط عند وجود تحديد فعلي،
                 ويُحسَب فوراً عند أي تغيير في التحديد (إضافة/إلغاء بند) عبر
