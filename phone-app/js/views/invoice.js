@@ -170,37 +170,61 @@ function entryForm(ctx, draft) {
     placeholder: "السعر (دج للكيلوغرام)",
     inputmode: "numeric",
     autocomplete: "off",
-    enterkeyhint: "done",
+    enterkeyhint: catalog.boxes.length ? "next" : "done",
     value: entry.price,
     oninput: () => { entry.price = price.value; persist(); updatePreview(); },
+    onkeydown: (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      (boxInputs[0] || addBtn).focus(); // السعر ← أول صندوق (أو زر الإضافة إن لم توجد صناديق)
+    },
   });
 
-  const stepRows = catalog.boxes.map((b) => {
+  // ───────── الصناديق: شبكة 3 أعمدة، العدد يُكتب مباشرة (بلا أزرار + و −) ─────────
+  // • كل بلاطة <label>: لمس أي مكان فيها (الاسم أو الوزن) يضع المؤشر في الحقل.
+  // • الحقل فارغ بدل «0» (placeholder = 0) فلا يحتاج مسحاً قبل الكتابة، وعند التركيز يُحدَّد ما فيه.
+  // • ترتيب النموذج: السعر ← الصناديق ← زر «إضافة البند». مفتاح «التالي/Enter» ينقل من السعر إلى
+  //   أول صندوق، ثم بين الصناديق، ومن الأخير إلى زر الإضافة (فتُغلق لوحة المفاتيح ويظهر الصافي).
+  // • الإدخال يُنظَّف: أرقام فقط (تُحوَّل الهندية للّاتينية)، بلا أصفار بادئة، حتى 4 خانات.
+  const boxInputs = [];
+  const boxTiles = catalog.boxes.map((b, i) => {
+    const initial = countOf(b.id);
     const val = h("input", {
-      class: "inp step-val num",
+      class: "inp box-count num",
+      type: "text",
       inputmode: "numeric",
-      value: String(countOf(b.id)),
+      pattern: "[0-9]*",
+      enterkeyhint: i === catalog.boxes.length - 1 ? "done" : "next",
+      autocomplete: "off",
+      placeholder: "0",
+      value: initial ? String(initial) : "",
       "aria-label": `عدد ${b.name}`,
       onfocus: () => val.select(),
       oninput: () => {
-        entry.counts[b.id] = Math.max(0, Math.min(9999, Math.trunc(Number(normalizeDigits(val.value)) || 0)));
+        const digits = normalizeDigits(val.value).replace(/\D/g, "").slice(0, 4);
+        const n = digits ? Number(digits) : 0;
+        const shown = digits ? String(n) : "";
+        if (val.value !== shown) val.value = shown; // يُعاد الكتابة فقط عند التغيير كي لا يقفز المؤشر
+        entry.counts[b.id] = n;
+        tile.classList.toggle("on", n > 0);
         persist();
         updatePreview();
       },
+      onkeydown: (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        (boxInputs[i + 1] || addBtn).focus();
+      },
     });
-    const set = (n) => { n = Math.max(0, Math.min(9999, n)); entry.counts[b.id] = n; val.value = String(n); persist(); updatePreview(); };
-    return h(
-      "div",
-      { class: "step-row" },
-      h("div", { class: "step-name" }, b.name, h("span", { class: "muted" }, " (", h("span", { class: "num" }, fmtW(b.weight)), " كغ)")),
-      h(
-        "div",
-        { class: "stepper" },
-        h("button", { class: "step-btn", type: "button", "aria-label": "إنقاص", onclick: () => set(countOf(b.id) - 1) }, "−"),
-        val,
-        h("button", { class: "step-btn", type: "button", "aria-label": "زيادة", onclick: () => set(countOf(b.id) + 1) }, "+"),
-      ),
+    boxInputs[i] = val;
+    const tile = h(
+      "label",
+      { class: "box-tile" + (initial ? " on" : "") },
+      h("span", { class: "box-name" }, b.name),
+      h("span", { class: "box-w muted" }, h("span", { class: "num" }, fmtW(b.weight)), " كغ"),
+      val,
     );
+    return tile;
   });
 
   async function add() {
@@ -218,6 +242,8 @@ function entryForm(ctx, draft) {
     ctx.refresh({ focus: "f-product" });
   }
 
+  const addBtn = h("button", { class: "btn primary block", onclick: add }, "إضافة البند");
+
   updatePreview();
   return h(
     "div",
@@ -226,11 +252,12 @@ function entryForm(ctx, draft) {
     product,
     h("div", { class: "row-inp" }, weight, plus),
     weightHint,
-    catalog.boxes.length ? h("div", { class: "boxes" }, h("div", { class: "label" }, "الصناديق"), stepRows) : null,
     price,
     priceHint,
+    // الصناديق آخر قسم إدخال، ويليه مباشرةً الصافي (يتحدّث أثناء كتابة الأعداد) ثم زر الإضافة.
+    catalog.boxes.length ? h("div", { class: "boxes" }, h("div", { class: "label" }, "الصناديق"), h("div", { class: "box-grid" }, boxTiles)) : null,
     preview,
-    h("button", { class: "btn primary block", onclick: add }, "إضافة البند"),
+    addBtn,
   );
 }
 
