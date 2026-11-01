@@ -53,7 +53,7 @@ interface InvoiceLineItemPayload {
   boxes: string;
 }
 
-interface InvoicePrintPayload {
+export interface InvoicePrintPayload {
   invoiceNumber: string;
   invoiceDate: string;
   merchantName: string;
@@ -69,7 +69,10 @@ interface GenerateInvoiceFileResult {
   path: string;
 }
 
-function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
+// مُصدَّرة (export) فقط كي تعيد الطباعة الجماعية (batchPrint.ts) استخدام
+// المنطق نفسه حرفياً بدل نسخه — لا تغيير في أي سلوك. المسار العادي
+// (printInvoice) لم يتغيّر.
+export function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
   // الإجمالي الكلي: **نفس منطق InvoiceForm.tsx تماماً** — مجموع كل
   // (الوزن × السعر) الخام أولاً، ثم round2 مرة واحدة على المجموع. عمداً لا
   // نستخدم عمود subtotal المخزَّن لكل بند (مقرَّب مسبقاً فردياً عند الحفظ —

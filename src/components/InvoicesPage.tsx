@@ -18,6 +18,7 @@ import {
 } from "../services/db";
 import { printInvoice } from "../services/print";
 import { formatMoney } from "./InvoiceShared";
+import { BatchPrintModal } from "./BatchPrintModal";
 
 const s = {
   page: { padding: "32px", direction: "rtl" as const },
@@ -125,6 +126,8 @@ export function InvoicesPage({
   const [loading, setLoading] = useState(true);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceFullDetails | null>(null);
   const [printingId, setPrintingId] = useState<number | null>(null);
+  // نافذة "طباعة جماعية (PDF)" — حالة محلية بحتة (القسم 6.5)، لا علاقة لها بمسار الطباعة العادية.
+  const [batchOpen, setBatchOpen] = useState(false);
 
   // نسخة "مؤخَّرة" (debounced) من نص البحث المرفوع — تُهيَّأ بقيمة search نفسها
   // عند التركيب (لا نص فارغ) كي لا تُعاد صفحة الأرشيف لحالة "بلا بحث" لحظياً كل
@@ -295,9 +298,23 @@ export function InvoicesPage({
 
   return (
     <div style={s.page}>
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={s.h1}>📄 أرشيف الفواتير</h1>
-        <div style={s.subtitle}>عرض وفحص عمليات البيع والشراء المسجلة في النظام</div>
+      <div style={{ marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap" }}>
+        <div>
+          <h1 style={s.h1}>📄 أرشيف الفواتير</h1>
+          <div style={s.subtitle}>عرض وفحص عمليات البيع والشراء المسجلة في النظام</div>
+        </div>
+        <button
+          onClick={() => setBatchOpen(true)}
+          title="إنشاء ملف PDF واحد بكل فواتير تاجر خلال فترة زمنية"
+          style={{
+            display: "flex", alignItems: "center", gap: "6px",
+            border: "1px solid #BFDBFE", backgroundColor: "#EFF6FF", color: "#1D4ED8",
+            borderRadius: "8px", padding: "10px 16px", fontSize: "14px", fontWeight: 700,
+            cursor: "pointer", fontFamily: "'Cairo', sans-serif",
+          }}
+        >
+          <Printer size={16} /> طباعة جماعية (PDF)
+        </button>
       </div>
 
       <div style={s.topBar}>
@@ -529,6 +546,8 @@ export function InvoicesPage({
           </div>
         </div>
       )}
+
+      {batchOpen && <BatchPrintModal onClose={() => setBatchOpen(false)} />}
     </div>
   );
 }

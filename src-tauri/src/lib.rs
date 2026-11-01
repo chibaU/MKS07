@@ -5,6 +5,11 @@ use std::fs;
 // مهمة 1/2 من ميزة طباعة الفاتورة: أول وحدة Rust command مخصصة في المشروع.
 // راجع تعليق رأس الملف نفسه (invoice_template.rs) لتفاصيل النطاق والقرارات.
 mod invoice_template;
+// الطباعة الجماعية لفواتير تاجر إلى ملف PDF واحد (AI_CONTEXT.md القسمان 6.5
+// و6.7): نواة بحتة قابلة للاختبار + أوامر Tauri رقيقة بالبادئة batch_invoice_pdf_.
+// للقراءة فقط على القاعدة، ولا تستخدم مسار الطباعة الصامتة إطلاقاً.
+mod batch_pdf_core;
+mod batch_invoice_pdf;
 // ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
 mod activation;
 // ميزة مزامنة الهاتف (راجع AI_CONTEXT.md القسم 10 وتعليق رأس phone_sync/mod.rs).
@@ -153,6 +158,13 @@ pub fn run() {
             // المعمارية أعلى رأس invoice_template.rs.
             invoice_template::print_invoice_direct,
             invoice_template::list_system_printers,
+            // الطباعة الجماعية إلى PDF واحد — خمس خطوات تقودها الواجهة بالتتابع
+            // (تقدم صادق + إلغاء): تجهيز، فاتورة، تحويل، دمج/حفظ، تنظيف.
+            batch_invoice_pdf::batch_invoice_pdf_prepare,
+            batch_invoice_pdf::batch_invoice_pdf_add_invoice,
+            batch_invoice_pdf::batch_invoice_pdf_convert,
+            batch_invoice_pdf::batch_invoice_pdf_finalize,
+            batch_invoice_pdf::batch_invoice_pdf_cleanup,
             activation::verify_activation_code,
             // ميزة مزامنة الهاتف — كل أوامرها بالبادئة phone_sync_ (معزولة عن ما سبق).
             phone_sync::phone_sync_status,
