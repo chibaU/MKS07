@@ -981,7 +981,8 @@ pub(crate) fn build_invoice_xlsx_to(
 /// الملف): `generate_invoice_file` (فتح يدوي) و`print_invoice_direct`
 /// (طباعة صامتة مباشرة، أسفل الملف) تستدعيان هذه الدالة نفسها بلا أي تكرار
 /// لمنطق التعبئة — الفرق الوحيد بينهما هو ما يحدث بملف xlsx الناتج بعد ذلك.
-fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathBuf, String> {
+// pub(crate) فقط ليستدعيها print_dialog.rs (الطباعة بعد نافذة الطباعة) — لا تغيير في المنطق.
+pub(crate) fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathBuf, String> {
     let template_file = template_path(app)?;
     // قراءة القالب + التعبئة + إعداد الطباعة: مستخرَجة إلى
     // `prepare_invoice_book` (مشتركة مع الطباعة الجماعية) بلا أي تغيير في
@@ -1096,7 +1097,8 @@ pub(crate) fn to_file_uri(path: &Path) -> String {
 /// مهلة أمان (60 ثانية): تمنع تعليق التطبيق كاملاً لو تعلَّقت عملية الطباعة
 /// نفسها فعلياً (طابعة غير متصلة، طابور طباعة معطَّل، إلخ) — تُنهي العملية
 /// الفرعية قسراً وتُعيد رسالة عربية واضحة بدل الانتظار إلى الأبد.
-fn run_soffice_headless_print(
+// pub(crate) فقط ليستدعيها print_dialog.rs — لا تغيير في المنطق.
+pub(crate) fn run_soffice_headless_print(
     app: &AppHandle,
     xlsx_path: &Path,
     printer_name: Option<&str>,

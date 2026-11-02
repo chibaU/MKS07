@@ -10,6 +10,9 @@ mod invoice_template;
 // للقراءة فقط على القاعدة، ولا تستخدم مسار الطباعة الصامتة إطلاقاً.
 mod batch_pdf_core;
 mod batch_invoice_pdf;
+// نافذة الطباعة الحقيقية لويندوز قبل طباعة الفاتورة العادية (AI_CONTEXT.md 6.7/8).
+// أمران جديدان بجانب print_invoice_direct (الذي لم يُمَس)، للطباعة بعد الاختيار.
+mod print_dialog;
 // ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
 mod activation;
 // ميزة مزامنة الهاتف (راجع AI_CONTEXT.md القسم 10 وتعليق رأس phone_sync/mod.rs).
@@ -165,6 +168,9 @@ pub fn run() {
             batch_invoice_pdf::batch_invoice_pdf_convert,
             batch_invoice_pdf::batch_invoice_pdf_finalize,
             batch_invoice_pdf::batch_invoice_pdf_cleanup,
+            // نافذة الطباعة (PrintDialog) ثم الطباعة على الطابعة المختارة بعدد النسخ.
+            print_dialog::print_dialog_show,
+            print_dialog::print_invoice_chosen,
             activation::verify_activation_code,
             // ميزة مزامنة الهاتف — كل أوامرها بالبادئة phone_sync_ (معزولة عن ما سبق).
             phone_sync::phone_sync_status,
