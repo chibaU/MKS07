@@ -852,7 +852,9 @@ fn apply_rtl_view_to_output(path: &std::path::Path) {
 // التنفيذ السابق، فقط لملفات xlsx بدل PDF الآن.
 // ----------------------------------------------------------------------
 
-fn generated_dir(app: &AppHandle) -> Result<PathBuf, String> {
+// pub(crate): تستعملها أيضاً الطباعة الجماعية (batch_invoice_pdf.rs) لتحديد
+// المجلد الأب لمجلد الدفعة المؤقت فقط — دون استدعاء cleanup_generated_dir.
+pub(crate) fn generated_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_dir = app
         .path()
         .app_data_dir()
@@ -891,6 +893,84 @@ pub struct GenerateInvoiceFileResult {
     pub path: String,
 }
 
+/// رسالة غياب القالب المرفوع — النص نفسه الذي كان داخل `build_invoice_xlsx`
+/// حرفياً؛ ثابت مشترك كي تستعمله الطباعة الجماعية للفحص المبكر برسالة
+/// مطابقة تماماً لرسالة الطباعة العادية دون تكرار النص.
+pub(crate) const MSG_NO_TEMPLATE: &str =
+    "لم يتم رفع أي قالب فاتورة بعد — الرجاء رفع قالب من صفحة الإعدادات أولاً قبل الطباعة.";
+
+/// **الخطوات المشتركة (1): قراءة القالب وتعبئته** — مُستخرَجة حرفياً من
+/// `build_invoice_xlsx` (نفس الأخطاء ونفس الترتيب) كي يستعملها أيضاً مسار
+/// الطباعة الجماعية إلى PDF (`batch_invoice_pdf.rs`) دون نسخ أي منطق تعبئة
+/// ودون المرور بـ`cleanup_generated_dir`. لا تغيّر سلوك المسار العادي إطلاقاً.
+///
+/// تُعيد الدفتر المُعبَّأ + هل القالب الأصلي RTL (لازم لـ`write_invoice_book`).
+/// لا تكتب شيئاً على القرص ولا تحذف شيئاً.
+pub(crate) fn prepare_invoice_book(
+    template_file: &Path,
+    data: &InvoicePrintInput,
+) -> Result<(umya_spreadsheet::Spreadsheet, bool), String> {
+    if !template_file.exists() {
+        return Err(MSG_NO_TEMPLATE.to_string());
+    }
+    let template_bytes = std::fs::read(template_file)
+        .map_err(|e| format!("تعذّر قراءة ملف القالب المخزَّن: {e}"))?;
+
+    // يجب استخراج هذا **من البايتات الخام الأصلية مباشرة**، قبل أي معالجة
+    // عبر umya-spreadsheet — راجع الشرح المفصَّل أعلى `detect_sheet_rtl` عن
+    // سبب فقدان هذه الخاصية بصمت لو اعتمدنا على المكتبة نفسها لحفظها.
+    let is_rtl_sheet = detect_sheet_rtl(&template_bytes);
+
+    let mut book = reader::xlsx::read_reader(Cursor::new(template_bytes.as_slice()), true)
+        .map_err(|e| format!("تعذّر تحليل القالب المخزَّن كملف Excel صالح: {e}"))?;
+    {
+        let sheet = book
+            .get_sheet_mut(&0)
+            .ok_or_else(|| "القالب المخزَّن لا يحتوي على أي ورقة عمل قابلة للقراءة".to_string())?;
+
+        // fill_template لا تخفق أبداً بسبب كلمة مفتاحية ناقصة (راجع القرار
+        // المعماري رقم 7) — الخطأ الوحيد الممكن منها الآن هو فاتورة بلا بنود
+        // إطلاقاً (شرط بيانات، لا شرط قالب). تُعيد رقم صف {{بند}} إن وُجد
+        // فعلياً في القالب، لنستخدمه في apply_print_setup أدناه.
+        let band_row = fill_template(sheet, data)?;
+        apply_print_setup(sheet, band_row);
+    }
+    Ok((book, is_rtl_sheet))
+}
+
+/// **الخطوات المشتركة (2): كتابة الدفتر المُعبَّأ إلى `out_path`** (إنشاء
+/// المجلد الأب إن لزم، الكتابة، ثم حقن `rightToLeft` إن كان القالب RTL) —
+/// مُستخرَجة حرفياً من `build_invoice_xlsx`، بلا أي تنظيف لأي مجلد.
+pub(crate) fn write_invoice_book(
+    book: &umya_spreadsheet::Spreadsheet,
+    is_rtl_sheet: bool,
+    out_path: &Path,
+) -> Result<(), String> {
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("تعذّر إنشاء مجلد ملفات الطباعة: {e}"))?;
+    }
+    writer::xlsx::write(book, out_path)
+        .map_err(|e| format!("تعذّر كتابة ملف الفاتورة النهائي على القرص: {e}"))?;
+
+    if is_rtl_sheet {
+        apply_rtl_view_to_output(out_path);
+    }
+    Ok(())
+}
+
+/// نقطة الدخول المشتركة للطباعة الجماعية (PDF): نفس القراءة/التعبئة/الكتابة
+/// بالضبط لكن إلى مسار مخصَّص `out_path` (داخل مجلد دفعة مؤقت)، **دون** استدعاء
+/// `cleanup_generated_dir` — فلا تمسح ملفات أي مسار طباعة آخر ولا فواتير
+/// الدفعة نفسها. `template_file` مُمرَّر من المستدعي (عبر `template_path`).
+pub(crate) fn build_invoice_xlsx_to(
+    template_file: &Path,
+    data: &InvoicePrintInput,
+    out_path: &Path,
+) -> Result<(), String> {
+    let (book, is_rtl_sheet) = prepare_invoice_book(template_file, data)?;
+    write_invoice_book(&book, is_rtl_sheet, out_path)
+}
+
 /// يقرأ القالب المخزَّن، يتحقق منه وقت الطباعة تحديداً (القرار المعماري
 /// رقم 7)، يملؤه ببيانات `data` (المُجمَّعة والمنسَّقة بالكامل من طرف JS
 /// مسبقاً — راجع تعليق `InvoicePrintInput` أعلاه)، يفرض A4 + تكرار صف
@@ -901,34 +981,14 @@ pub struct GenerateInvoiceFileResult {
 /// الملف): `generate_invoice_file` (فتح يدوي) و`print_invoice_direct`
 /// (طباعة صامتة مباشرة، أسفل الملف) تستدعيان هذه الدالة نفسها بلا أي تكرار
 /// لمنطق التعبئة — الفرق الوحيد بينهما هو ما يحدث بملف xlsx الناتج بعد ذلك.
-fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathBuf, String> {
+// pub(crate) فقط ليستدعيها print_dialog.rs (الطباعة بعد نافذة الطباعة) — لا تغيير في المنطق.
+pub(crate) fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathBuf, String> {
     let template_file = template_path(app)?;
-    if !template_file.exists() {
-        return Err(
-            "لم يتم رفع أي قالب فاتورة بعد — الرجاء رفع قالب من صفحة الإعدادات أولاً قبل الطباعة."
-                .to_string(),
-        );
-    }
-    let template_bytes = std::fs::read(&template_file)
-        .map_err(|e| format!("تعذّر قراءة ملف القالب المخزَّن: {e}"))?;
-
-    // يجب استخراج هذا **من البايتات الخام الأصلية مباشرة**، قبل أي معالجة
-    // عبر umya-spreadsheet — راجع الشرح المفصَّل أعلى `detect_sheet_rtl` عن
-    // سبب فقدان هذه الخاصية بصمت لو اعتمدنا على المكتبة نفسها لحفظها.
-    let is_rtl_sheet = detect_sheet_rtl(&template_bytes);
-
-    let mut book = reader::xlsx::read_reader(Cursor::new(template_bytes.as_slice()), true)
-        .map_err(|e| format!("تعذّر تحليل القالب المخزَّن كملف Excel صالح: {e}"))?;
-    let sheet = book
-        .get_sheet_mut(&0)
-        .ok_or_else(|| "القالب المخزَّن لا يحتوي على أي ورقة عمل قابلة للقراءة".to_string())?;
-
-    // fill_template لا تخفق أبداً بسبب كلمة مفتاحية ناقصة (راجع القرار
-    // المعماري رقم 7) — الخطأ الوحيد الممكن منها الآن هو فاتورة بلا بنود
-    // إطلاقاً (شرط بيانات، لا شرط قالب). تُعيد رقم صف {{بند}} إن وُجد
-    // فعلياً في القالب، لنستخدمه في apply_print_setup أدناه.
-    let band_row = fill_template(sheet, data)?;
-    apply_print_setup(sheet, band_row);
+    // قراءة القالب + التعبئة + إعداد الطباعة: مستخرَجة إلى
+    // `prepare_invoice_book` (مشتركة مع الطباعة الجماعية) بلا أي تغيير في
+    // الترتيب أو الأخطاء — و`cleanup_generated_dir` أدناه ما زالت تأتي بعدها
+    // مباشرة كما كانت (فشل التعبئة لا يمسح شيئاً).
+    let (book, is_rtl_sheet) = prepare_invoice_book(&template_file, data)?;
 
     let out_dir = generated_dir(app)?;
     cleanup_generated_dir(&out_dir)?;
@@ -945,15 +1005,7 @@ fn build_invoice_xlsx(app: &AppHandle, data: &InvoicePrintInput) -> Result<PathB
     };
     let out_path = out_dir.join(file_name);
 
-    if let Some(parent) = out_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("تعذّر إنشاء مجلد ملفات الطباعة: {e}"))?;
-    }
-    writer::xlsx::write(&book, &out_path)
-        .map_err(|e| format!("تعذّر كتابة ملف الفاتورة النهائي على القرص: {e}"))?;
-
-    if is_rtl_sheet {
-        apply_rtl_view_to_output(&out_path);
-    }
+    write_invoice_book(&book, is_rtl_sheet, &out_path)?;
 
     Ok(out_path)
 }
@@ -983,7 +1035,7 @@ pub fn generate_invoice_file(app: AppHandle, data: InvoicePrintInput) -> Result<
 /// `soffice --headless` بذاته لا يفتح أي نافذة أصلاً، لكن هذا احتياط إضافي
 /// يمنع حتى وميض نافذة طرفية عابرة قد تُنشئها بعض الأصداف (shells) عند بدء
 /// العملية الفرعية.
-fn suppress_window(cmd: &mut Command) {
+pub(crate) fn suppress_window(cmd: &mut Command) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1000,7 +1052,7 @@ fn suppress_window(cmd: &mut Command) {
 /// الافتراضية القياسية على Windows (بيئة تشغيل المستخدم النهائي الفعلية —
 /// راجع AI_CONTEXT.md القسم 2)، ثم اسم مجرَّد نترك لنظام التشغيل البحث عنه
 /// عبر PATH (يغطي أيضاً تثبيتاً غير قياسي، وبيئة التطوير على Linux/Ubuntu).
-fn soffice_candidates() -> Vec<PathBuf> {
+pub(crate) fn soffice_candidates() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         vec![
@@ -1020,7 +1072,7 @@ fn soffice_candidates() -> Vec<PathBuf> {
 /// حاجتنا هنا (مسار داخل AppData نُنشئه نحن بأنفسنا، لا مسار حر من المستخدم):
 /// استبدال `\` بـ`/`، وترميز الفراغ (الحرف الوحيد الشائع فعلياً في مسارات
 /// مستخدمي Windows، مثل "Users\Ahmed Ali") كـ`%20`.
-fn to_file_uri(path: &Path) -> String {
+pub(crate) fn to_file_uri(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace('\\', "/").replace(' ', "%20");
     if let Some(stripped) = normalized.strip_prefix('/') {
         format!("file:///{stripped}")
@@ -1045,7 +1097,8 @@ fn to_file_uri(path: &Path) -> String {
 /// مهلة أمان (60 ثانية): تمنع تعليق التطبيق كاملاً لو تعلَّقت عملية الطباعة
 /// نفسها فعلياً (طابعة غير متصلة، طابور طباعة معطَّل، إلخ) — تُنهي العملية
 /// الفرعية قسراً وتُعيد رسالة عربية واضحة بدل الانتظار إلى الأبد.
-fn run_soffice_headless_print(
+// pub(crate) فقط ليستدعيها print_dialog.rs — لا تغيير في المنطق.
+pub(crate) fn run_soffice_headless_print(
     app: &AppHandle,
     xlsx_path: &Path,
     printer_name: Option<&str>,

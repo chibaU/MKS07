@@ -192,9 +192,10 @@ export function SettingsPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<TemplateUploadResult | null>(null);
 
-  // --- مهمة 3/2 من ميزة الطباعة: اختيار طابعة الفواتير للطباعة الصامتة
-  // المباشرة (راجع تعليق print_invoice_direct في invoice_template.rs). قيمة
-  // فارغة ("") تعني "طابعة النظام الافتراضية" — لا تُفرض أي طابعة تحديداً. ---
+  // --- مهمة 3/2 من ميزة الطباعة: اختيار طابعة الفواتير. صارت الطابعة المحدَّدة
+  // مسبقاً في نافذة الطباعة (print_dialog.rs)، وهي ما تستخدمه الطباعة الصامتة
+  // الاحتياطية (print_invoice_direct). قيمة فارغة ("") تعني "طابعة النظام
+  // الافتراضية" — لا تُفرض أي طابعة تحديداً. ---
   const [printers, setPrinters] = useState<string[]>([]);
   const [printersLoading, setPrintersLoading] = useState(true);
   const [selectedPrinter, setSelectedPrinter] = useState<string>("");
@@ -379,8 +380,9 @@ export function SettingsPage() {
           </div>
           <div style={s.cardTitle}>طابعة الفواتير</div>
           <div style={s.cardDesc}>
-            عند الضغط على "طباعة" أو "حفظ وطباعة"، تُطبع الفاتورة مباشرة وبصمت على الطابعة المختارة هنا — بلا فتح أي
-            نافذة Excel أو LibreOffice. اترك الخيار على القيمة الافتراضية لاستخدام طابعة النظام الافتراضية.
+            عند الضغط على "طباعة" أو "حفظ وطباعة" تظهر نافذة الطباعة الخاصة بالنظام لاختيار الطابعة وعدد النسخ، وتكون
+            الطابعة المختارة هنا هي المحدَّدة مسبقاً فيها (بلا فتح أي نافذة Excel أو LibreOffice). اترك الخيار على القيمة
+            الافتراضية لتبدأ النافذة بطابعة النظام الافتراضية.
           </div>
 
           <div style={s.templateStatusBox}>

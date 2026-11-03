@@ -134,6 +134,18 @@ export interface SearchInvoicesResult {
   totalCount: number;
 }
 
+// صف خفيف لفاتورة تاجر داخل نطاق تاريخ (الطباعة الجماعية — AI_CONTEXT.md
+// القسم 6.5/6.7): ما يكفي للمعاينة (الرقم/التاريخ/الإجمالي) وللمنع (is_open)
+// وللترتيب، بلا بنود. التفاصيل الكاملة تُجلَب لاحقاً لكل فاتورة بالتتابع
+// عبر getInvoiceFullDetails.
+export interface MerchantInvoiceInRange {
+  id: number;
+  invoice_number: NullableString;
+  invoice_date: NullableString;
+  total_amount: number;
+  is_open: number;
+}
+
 // نتيجة إنشاء فاتورة جديدة مع أول بند فيها — detailId هو الـ id الحقيقي لصف
 // invoice_details المُدرَج (لا أي صف آخر أُدرِج بعده ضمن نفس المعاملة).
 export interface CreateInvoiceWithFirstDetailResult {
@@ -1089,6 +1101,34 @@ export const invoiceService = {
         WHERE invoices.merchant_id = $1
         ORDER BY invoices.invoice_date DESC, invoices.id DESC`,
         [merchantId]
+      )
+    );
+  },
+
+  // الطباعة الجماعية (قراءة فقط): كل فواتير تاجر واحد بين تاريخين **شاملين
+  // للطرفين** (YYYY-MM-DD، مقارنة نصية مباشرة كما في searchInvoices)، بلا
+  // LIMIT ولا ترقيم صفحات — الغرض تضمين الكل دون استثناء. الترتيب تصاعدي
+  // بالتاريخ ثم id، وهو ترتيب صفحات الملف النهائي. استعلام واحد تحت
+  // runExclusive واحد؛ لا كتابة ولا ترقيم كسول ولا أي تغيير لحالة is_open.
+  async getMerchantInvoicesInRange(
+    merchantId: number,
+    dateFrom: string,
+    dateTo: string
+  ): Promise<MerchantInvoiceInRange[]> {
+    return await runExclusive((raw) =>
+      raw.select<MerchantInvoiceInRange[]>(
+        `SELECT
+          invoices.id,
+          invoices.invoice_number,
+          invoices.invoice_date,
+          invoices.total_amount,
+          invoices.is_open
+        FROM invoices
+        WHERE invoices.merchant_id = $1
+          AND invoices.invoice_date >= $2
+          AND invoices.invoice_date <= $3
+        ORDER BY invoices.invoice_date ASC, invoices.id ASC`,
+        [merchantId, dateFrom, dateTo]
       )
     );
   },
