@@ -150,6 +150,19 @@ function parseCmdError(e: unknown): CmdError {
   return { index: null, message: String(e) };
 }
 
+/**
+ * زر "فتح مكان الملف": يكشف ملف PDF الناتج في مستكشف ويندوز محدَّداً. للقراءة فقط
+ * (لا يمسّ قاعدة البيانات ولا الملف). التحقق الأمني من المسار في Rust
+ * (`batch_invoice_pdf_reveal`). يرمي BatchError برسالة عربية إن تعذّر.
+ */
+export async function revealBatchPdf(path: string): Promise<void> {
+  try {
+    await invoke("batch_invoice_pdf_reveal", { path });
+  } catch (e) {
+    throw new BatchError(parseCmdError(e).message || "تعذّر فتح مكان الملف.");
+  }
+}
+
 export interface CreateBatchPdfParams {
   merchantId: number;
   merchantName: string;

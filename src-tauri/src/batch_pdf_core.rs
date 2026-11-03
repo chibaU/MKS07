@@ -228,6 +228,62 @@ pub fn reserve_unique_file(dir: &Path, file_name: &str) -> Result<PathBuf, Strin
     Err("تعذّر إيجاد اسم غير مستخدم للملف النهائي في مجلد الحفظ.".to_string())
 }
 
+/// بادئة اسم ملف هذه الميزة (`فواتير_…pdf`)، يستخدمها التحقق أدناه كي لا يُوجَّه
+/// "فتح المكان" إلا لملفات الطباعة الجماعية.
+pub const PDF_FILE_PREFIX: &str = "فواتير_";
+
+/// يتحقق من مسار يصل من الواجهة لزر "فتح مكان الملف" ويُعيد المسار الذي يجوز
+/// كشفه في المستكشف. الشروط كلها معاً (أي إخلال = خطأ عربي):
+///   - مسار مطلق بلا علامة اقتباس مزدوجة ولا محارف تحكّم (يُمرَّر لاحقاً إلى
+///     `explorer.exe /select,"…"` كنص خام، فلا يجوز أن يخرج أي محرف من الاقتباس)؛
+///   - اسم الملف يبدأ بـ`فواتير_` وينتهي بـ`.pdf`؛
+///   - مجلده **هو نفسه** (بعد حل `..` والروابط) أحد المجلدات المسموحة
+///     `allowed_dirs` (التنزيلات/سطح المكتب — مجلد الحفظ الفعلي)؛
+///   - الملف موجود فعلاً وهو ملف لا مجلد.
+/// المُعاد = `المجلد المسموح (كما أعطاه النظام) + اسم الملف` وليس النص الوارد،
+/// فلا يصل المستكشف أي جزء من مسار الواجهة سوى اسم الملف المتحقَّق منه.
+pub fn resolve_reveal_target(path: &str, allowed_dirs: &[PathBuf]) -> Result<PathBuf, String> {
+    let raw = path.trim();
+    if raw.is_empty() || raw.chars().any(|c| c == '"' || c.is_control()) {
+        return Err("مسار الملف غير صالح.".to_string());
+    }
+    let given = Path::new(raw);
+    if !given.is_absolute() {
+        return Err("مسار الملف غير صالح (ليس مساراً كاملاً).".to_string());
+    }
+    let file_name = given
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "مسار الملف غير صالح.".to_string())?;
+    let is_pdf = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !file_name.starts_with(PDF_FILE_PREFIX) || !is_pdf {
+        return Err("هذا ليس ملف PDF ناتجاً عن الطباعة الجماعية.".to_string());
+    }
+    let parent = given
+        .parent()
+        .ok_or_else(|| "مسار الملف غير صالح.".to_string())?;
+    let parent_canon = fs::canonicalize(parent)
+        .map_err(|_| "مجلد الملف لم يعد موجوداً.".to_string())?;
+    for dir in allowed_dirs {
+        let same = match fs::canonicalize(dir) {
+            Ok(c) => c == parent_canon,
+            Err(_) => dir.as_path() == parent,
+        };
+        if same {
+            let target = dir.join(file_name);
+            return match fs::metadata(&target) {
+                Ok(m) if m.is_file() => Ok(target),
+                _ => Err("الملف لم يعد موجوداً في مكانه (ربما نُقل أو حُذف).".to_string()),
+            };
+        }
+    }
+    Err("مسار الملف خارج مجلد حفظ الطباعة الجماعية.".to_string())
+}
+
 // ───────────────────────── التحويل: xlsx → PDF عبر LibreOffice ─────────────────────────
 
 /// نتيجة تحويل مجموعة ملفات: فهارس الفواتير التي لم يُنتَج لها PDF سليم، وسبب
@@ -871,5 +927,105 @@ mod tests {
         assert!(!out.exists(), "لا ملف ناتج عند الفشل");
         assert!(merge_pdfs(&[], &out).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── التحقق من مسار "فتح مكان الملف" ──
+
+    const OK_NAME: &str = "فواتير_تاجر الأمل_2026-10-01_2026-10-31.pdf";
+
+    fn touch(dir: &Path, name: &str) -> PathBuf {
+        let p = dir.join(name);
+        fs::write(&p, b"%PDF-1.4\n%%EOF").unwrap();
+        p
+    }
+
+    #[test]
+    fn reveal_accepts_batch_pdf_in_allowed_dir() {
+        let dl = temp_dir("rv_ok");
+        let f = touch(&dl, OK_NAME);
+        let got = resolve_reveal_target(&f.display().to_string(), &[dl.clone()]).unwrap();
+        assert_eq!(got, dl.join(OK_NAME));
+        // رقم تسلسلي " (2)" واسم بامتداد كبير أيضاً مقبولان
+        let f2 = touch(&dl, "فواتير_س_2026-10-01_2026-10-31 (2).PDF");
+        assert!(resolve_reveal_target(&f2.display().to_string(), &[dl.clone()]).is_ok());
+    }
+
+    #[test]
+    fn reveal_accepts_second_allowed_dir_like_desktop_fallback() {
+        let dl = temp_dir("rv_dl");
+        let desk = temp_dir("rv_desk");
+        let f = touch(&desk, OK_NAME);
+        let got = resolve_reveal_target(&f.display().to_string(), &[dl, desk.clone()]).unwrap();
+        assert_eq!(got, desk.join(OK_NAME));
+    }
+
+    #[test]
+    fn reveal_rejects_dir_outside_allowed() {
+        let dl = temp_dir("rv_in");
+        let other = temp_dir("rv_out");
+        let f = touch(&other, OK_NAME);
+        assert!(resolve_reveal_target(&f.display().to_string(), &[dl]).is_err());
+    }
+
+    #[test]
+    fn reveal_rejects_path_traversal_into_other_dir() {
+        let dl = temp_dir("rv_tr_in");
+        let other = temp_dir("rv_tr_out");
+        touch(&other, OK_NAME);
+        let sneaky = format!(
+            "{}/../{}/{}",
+            dl.display(),
+            other.file_name().unwrap().to_str().unwrap(),
+            OK_NAME
+        );
+        // المسار الملتوي يحلّ إلى مجلد آخر → مرفوض، رغم أن بدايته داخل المسموح
+        let other_parent = other.parent().unwrap().to_path_buf();
+        assert_eq!(dl.parent().unwrap(), other_parent.as_path());
+        assert!(resolve_reveal_target(&sneaky, &[dl]).is_err());
+    }
+
+    #[test]
+    fn reveal_accepts_dotdot_that_resolves_back_to_allowed_dir() {
+        let dl = temp_dir("rv_dd");
+        fs::create_dir_all(dl.join("sub")).unwrap();
+        touch(&dl, OK_NAME);
+        let p = format!("{}/sub/../{}", dl.display(), OK_NAME);
+        // يحلّ إلى المجلد المسموح نفسه؛ والمُعاد مسار نظيف بلا ".."
+        let got = resolve_reveal_target(&p, &[dl.clone()]).unwrap();
+        assert_eq!(got, dl.join(OK_NAME));
+        assert!(!got.display().to_string().contains(".."));
+    }
+
+    #[test]
+    fn reveal_rejects_wrong_name_or_extension() {
+        let dl = temp_dir("rv_name");
+        let a = touch(&dl, "تقرير_2026.pdf");
+        let b = touch(&dl, "فواتير_س_2026-10-01_2026-10-31.txt");
+        let c = touch(&dl, "فواتير_س_2026-10-01_2026-10-31.pdf.exe");
+        for f in [a, b, c] {
+            assert!(resolve_reveal_target(&f.display().to_string(), &[dl.clone()]).is_err(), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn reveal_rejects_missing_file_directory_and_bad_input() {
+        let dl = temp_dir("rv_bad");
+        let missing = dl.join(OK_NAME);
+        assert!(resolve_reveal_target(&missing.display().to_string(), &[dl.clone()]).is_err());
+        // مجلد باسم يطابق الشروط ليس ملفاً
+        let dir_named = dl.join("فواتير_مجلد_2026-10-01_2026-10-31.pdf");
+        fs::create_dir_all(&dir_named).unwrap();
+        assert!(resolve_reveal_target(&dir_named.display().to_string(), &[dl.clone()]).is_err());
+        for bad in ["", "   ", "relative/فواتير_س.pdf", "فواتير_س.pdf"] {
+            assert!(resolve_reveal_target(bad, &[dl.clone()]).is_err(), "{bad:?}");
+        }
+        // اقتباس مزدوج أو محرف تحكّم (حقن في وسائط explorer)
+        let quoted = format!("{}/فواتير_\" /select,C:\\x.pdf", dl.display());
+        assert!(resolve_reveal_target(&quoted, &[dl.clone()]).is_err());
+        let ctrl = format!("{}/{}\u{0}", dl.display(), OK_NAME);
+        assert!(resolve_reveal_target(&ctrl, &[dl.clone()]).is_err());
+        // لا مجلدات مسموحة أصلاً
+        let f = touch(&dl, "فواتير_ب_2026-10-01_2026-10-31.pdf");
+        assert!(resolve_reveal_target(&f.display().to_string(), &[]).is_err());
     }
 }

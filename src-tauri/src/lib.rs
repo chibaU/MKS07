@@ -168,6 +168,8 @@ pub fn run() {
             batch_invoice_pdf::batch_invoice_pdf_convert,
             batch_invoice_pdf::batch_invoice_pdf_finalize,
             batch_invoice_pdf::batch_invoice_pdf_cleanup,
+            // زر "فتح مكان الملف" بعد نجاح الدفعة (يكشف PDF الناتج في المستكشف).
+            batch_invoice_pdf::batch_invoice_pdf_reveal,
             // نافذة الطباعة (PrintDialog) ثم الطباعة على الطابعة المختارة بعدد النسخ.
             print_dialog::print_dialog_show,
             print_dialog::print_invoice_chosen,

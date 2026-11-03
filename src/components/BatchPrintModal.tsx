@@ -13,7 +13,7 @@
 //  - مغادرة الصفحة (إزالة المكوّن) أثناء العمل تُعامَل كإلغاء مع تنظيف.
 // ============================================================================
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, FileText, Search } from "lucide-react";
+import { X, FileText, Search, FolderOpen } from "lucide-react";
 import { merchantService, type Merchant } from "../services/db";
 import { Autocomplete, formatMoney, type Suggestion } from "./InvoiceShared";
 import {
@@ -23,6 +23,7 @@ import {
   createBatchPdf,
   invoiceDisplayNumber,
   loadBatchPreview,
+  revealBatchPdf,
   validateRange,
   type BatchPdfResult,
   type BatchPreview,
@@ -155,6 +156,8 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
   const [dateTo, setDateTo] = useState("");
   const [previewState, setPreviewState] = useState<PreviewState>({ status: "idle" });
   const [run, setRun] = useState<RunState>({ status: "idle" });
+  // زر "فتح مكان الملف" بعد النجاح: busy يمنع تكرار الضغط، وerror رسالة تعذّر الفتح.
+  const [reveal, setReveal] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
 
   // طلب إلغاء العملية الجارية: تقرأه الحلقة بين الخطوات (isCancelled) — ref لا state
   // كي تراه فوراً دون انتظار إعادة رسم.
@@ -215,6 +218,7 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
     previewSeq.current += 1;
     setPreviewState({ status: "idle" });
     setRun((prev) => (prev.status === "running" ? prev : { status: "idle" }));
+    setReveal({ busy: false, error: null });
   };
 
   const handleMerchantTextChange = (value: string) => {
@@ -248,9 +252,25 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
     }
   };
 
+  const handleReveal = async () => {
+    if (run.status !== "success" || reveal.busy) return;
+    setReveal({ busy: true, error: null });
+    try {
+      await revealBatchPdf(run.result.path);
+      setReveal({ busy: false, error: null });
+    } catch (error) {
+      console.error("تعذّر فتح مكان ملف PDF:", error);
+      setReveal({
+        busy: false,
+        error: error instanceof Error ? error.message : "تعذّر فتح مكان الملف.",
+      });
+    }
+  };
+
   const handleGenerate = async () => {
     if (!canGenerate || preview === null || selectedMerchant === null) return;
     cancelRef.current = false;
+    setReveal({ busy: false, error: null });
     setRun({
       status: "running",
       progress: { phase: "build", fraction: 0, text: "جارٍ البدء…" },
@@ -459,7 +479,14 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
               <div style={{ ...s.pathBox, direction: "rtl", textAlign: "right" }}>
                 <FileNameView name={splitPath(run.result.path).name} />
               </div>
+              <div style={{ ...s.pathLabel, marginTop: "10px" }}>
+                إن أُغلق المستكشف أو اختفى، اضغط «فتح مكان الملف» لإظهار الملف محدَّداً.
+              </div>
             </div>
+          )}
+
+          {run.status === "success" && reveal.error && (
+            <div style={{ ...s.box, ...s.boxError }}>{reveal.error}</div>
           )}
         </div>
 
@@ -481,6 +508,15 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
                   disabled={!canGenerate}
                 >
                   <FileText size={16} /> إنشاء ملف PDF
+                </button>
+              )}
+              {run.status === "success" && (
+                <button
+                  style={{ ...s.btn, ...s.btnPrimary, ...disabledStyle(reveal.busy) }}
+                  onClick={handleReveal}
+                  disabled={reveal.busy}
+                >
+                  <FolderOpen size={16} /> فتح مكان الملف
                 </button>
               )}
               <button style={{ ...s.btn, ...s.btnGhost }} onClick={onClose}>

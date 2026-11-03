@@ -12,6 +12,7 @@
 //   convert      ← يحوّل مجموعة xlsx إلى PDF بـLibreOffice (استدعاء واحد/مجموعة)
 //   finalize     ← يدمج PDF بالترتيب ويحفظه في التنزيلات ويكشفه في المستكشف
 //   cleanup      ← يحذف مجلد الدفعة كاملاً (تستدعيه الواجهة نجاحاً أو فشلاً)
+//   reveal       ← زر "فتح مكان الملف": يكشف PDF الناتج في المستكشف (بعد التحقق من مساره)
 //
 // **كلها `async` + `spawn_blocking` عمداً:** أوامر Tauri v2 غير الـasync تعمل
 // على الخيط الرئيسي، فكان التحويل (دقائق) سيجمّد الواجهة فلا يتحرك شريط
@@ -264,6 +265,28 @@ pub async fn batch_invoice_pdf_cleanup(app: AppHandle, batch_id: String) -> Resu
             }
         }
         Err(BatchCmdError::from(format!("تعذّر حذف الملفات المؤقتة للدفعة: {last_err}")))
+    })
+    .await
+}
+
+/// زر "فتح مكان الملف" بعد نجاح الدفعة: يكشف ملف PDF الناتج في مستكشف ويندوز
+/// محدَّداً (نفس `explorer.exe /select` الذي يُستدعى تلقائياً عند الإنهاء، وهذا
+/// الأمر لإعادته إن أُغلقت النافذة أو اختفت). المسار يأتي من الواجهة، فلا يُكشَف
+/// إلا ملف `فواتير_…pdf` موجود داخل مجلد حفظ الميزة نفسه (التنزيلات/سطح المكتب)
+/// بعد `resolve_reveal_target` — لا اقتباس ولا `..` ولا مجلد آخر. للقراءة فقط.
+#[tauri::command]
+pub async fn batch_invoice_pdf_reveal(app: AppHandle, path: String) -> Result<(), BatchCmdError> {
+    run_blocking(move || {
+        let mut allowed: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(dir) = app.path().download_dir() {
+            allowed.push(dir);
+        }
+        if let Ok(dir) = app.path().desktop_dir() {
+            allowed.push(dir);
+        }
+        let target = bcore::resolve_reveal_target(&path, &allowed)?;
+        reveal_in_explorer(&target);
+        Ok(())
     })
     .await
 }
