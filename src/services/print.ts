@@ -53,6 +53,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { invoiceService, type InvoiceFullDetails, settingsService, SETTINGS_KEY_PRINTER_NAME } from "./db";
 import { round2, formatMoney } from "../components/InvoiceShared";
+import { calculateRepeatedProductSummaries, type RepeatedProductSummary } from "./repeatedProductsSummary";
 
 interface InvoiceLineItemPayload {
   product: string;
@@ -72,6 +73,8 @@ export interface InvoicePrintPayload {
   totalWeight: string;
   totalBoxes: string;
   items: InvoiceLineItemPayload[];
+  /** اختيارية حتى تبقى طباعة الزر القديم مطابقة تماماً للسلوك السابق. */
+  repeatedProductSummary: RepeatedProductSummary[];
 }
 
 interface GenerateInvoiceFileResult {
@@ -81,7 +84,7 @@ interface GenerateInvoiceFileResult {
 // مُصدَّرة (export) فقط كي تعيد الطباعة الجماعية (batchPrint.ts) استخدام
 // المنطق نفسه حرفياً بدل نسخه — لا تغيير في أي سلوك. المسار العادي
 // (printInvoice) لم يتغيّر.
-export function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
+export function buildPayload(full: InvoiceFullDetails, includeRepeatedProductSummary = false): InvoicePrintPayload {
   // الإجمالي الكلي: **نفس منطق InvoiceForm.tsx تماماً** — مجموع كل
   // (الوزن × السعر) الخام أولاً، ثم round2 مرة واحدة على المجموع. عمداً لا
   // نستخدم عمود subtotal المخزَّن لكل بند (مقرَّب مسبقاً فردياً عند الحفظ —
@@ -107,6 +110,18 @@ export function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
     boxes: d.boxes.map((b) => `${b.box_name} ×${b.box_count}`).join("\n"),
   }));
 
+  // المصدر هنا هو *النص المطبوع* لكل وزن ومبلغ، لا الأعداد العشرية الخام.
+  // وهكذا يطابق مجموع الملخّص ما يجمعه قارئ الفاتورة يدوياً حرفياً.
+  const repeatedProductSummary = includeRepeatedProductSummary
+    ? calculateRepeatedProductSummaries(
+        full.details.map((d) => ({
+          product: d.product_name,
+          weight: d.quantity.toFixed(2),
+          subtotal: formatMoney(d.subtotal),
+        })),
+      )
+    : [];
+
   return {
     invoiceNumber: full.invoice_number ?? "",
     invoiceDate: full.invoice_date ?? "",
@@ -117,6 +132,7 @@ export function buildPayload(full: InvoiceFullDetails): InvoicePrintPayload {
     totalWeight: totalWeight.toFixed(2),
     totalBoxes: String(totalBoxes),
     items,
+    repeatedProductSummary,
   };
 }
 
@@ -143,16 +159,16 @@ let printQueue: Promise<unknown> = Promise.resolve();
 /// يدوياً، بدل إفشال العملية بالكامل. لا يزال يُلقي (throw) خطأً عربياً
 /// واضحاً في حال فشل حتى بناء الملف نفسه (قالب مفقود/فاسد، فاتورة بلا بنود،
 /// إلخ) — على المستدعي (المكوّن) عرضه للمستخدم بطريقته المعتادة (alert/toast).
-export function printInvoice(invoiceId: number): Promise<void> {
+export function printInvoice(invoiceId: number, includeRepeatedProductSummary = false): Promise<void> {
   // طابور: تظهر نافذة طباعة واحدة في كل مرة (ضغطتان متتاليتان لا تفتحان نافذتين
   // معاً، ولا تتزاحم الطباعتان على مجلد الملفات المولَّدة). فشل طباعة لا يوقف
   // اللاحقة، والخطأ يصل لمستدعيه وحده.
-  const run = printQueue.then(() => printInvoiceNow(invoiceId));
+  const run = printQueue.then(() => printInvoiceNow(invoiceId, includeRepeatedProductSummary));
   printQueue = run.catch(() => undefined);
   return run;
 }
 
-async function printInvoiceNow(invoiceId: number): Promise<void> {
+async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary: boolean): Promise<void> {
   const full = await invoiceService.getInvoiceFullDetails(invoiceId);
   if (!full) {
     throw new Error("تعذّر العثور على بيانات هذه الفاتورة لطباعتها.");
@@ -161,7 +177,7 @@ async function printInvoiceNow(invoiceId: number): Promise<void> {
     throw new Error("هذه الفاتورة لا تحتوي على أي بنود — لا يمكن طباعتها.");
   }
 
-  const payload = buildPayload(full);
+  const payload = buildPayload(full, includeRepeatedProductSummary);
 
   const printerName = (await settingsService.get(SETTINGS_KEY_PRINTER_NAME)) ?? "";
   const savedPrinter = printerName.trim() === "" ? null : printerName.trim();

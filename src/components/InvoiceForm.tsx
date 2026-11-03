@@ -167,7 +167,7 @@ interface InvoiceFormProps {
   onChange: (patch: Partial<Draft>) => void;
   handleInsertRow: (row: DraftRow) => Promise<void>;
   onResolveInvoiceNumber: (text: string) => void;
-  onCloseInvoice: (andPrint?: boolean) => void;
+  onCloseInvoice: (andPrint?: boolean, includeRepeatedProductSummary?: boolean) => void;
   merchants: Merchant[];
   products: Product[];
   // يحدّث قائمة الصناديق النشطة العامة (App) ويُرجع القائمة المحدَّثة، أو null عند الفشل.
@@ -866,6 +866,27 @@ export function InvoiceForm({
         >
           <Printer size={18} />
           {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة"}
+        </button>
+        <button
+          onClick={() => onCloseInvoice(true, true)}
+          disabled={!canClose}
+          style={{
+            backgroundColor: "#ECFDF5",
+            color: !canClose ? "#94A3B8" : "#047857",
+            border: `2px solid ${!canClose ? "#CBD5E1" : "#6EE7B7"}`,
+            borderRadius: "8px",
+            padding: "14px 24px",
+            fontSize: "16px",
+            fontWeight: 700,
+            cursor: !canClose ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "9px",
+            fontFamily: "'Cairo', sans-serif",
+          }}
+        >
+          <Printer size={18} />
+          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة مع الملخّص"}
         </button>
         <button
           onClick={() => onCloseInvoice(false)}

@@ -267,7 +267,7 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
     }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (includeRepeatedProductSummary = false) => {
     if (!canGenerate || preview === null || selectedMerchant === null) return;
     cancelRef.current = false;
     setReveal({ busy: false, error: null });
@@ -283,6 +283,7 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
         dateFrom,
         dateTo,
         previewSignature: preview.signature,
+        includeRepeatedProductSummary,
         onProgress: (progress) =>
           setRun((prev) => (prev.status === "running" ? { ...prev, progress } : prev)),
         isCancelled: () => cancelRef.current,
@@ -502,13 +503,22 @@ export function BatchPrintModal({ onClose }: BatchPrintModalProps) {
           ) : (
             <>
               {run.status !== "success" && (
-                <button
-                  style={{ ...s.btn, ...s.btnPrimary, ...disabledStyle(!canGenerate) }}
-                  onClick={handleGenerate}
-                  disabled={!canGenerate}
-                >
-                  <FileText size={16} /> إنشاء ملف PDF
-                </button>
+                <>
+                  <button
+                    style={{ ...s.btn, ...s.btnPrimary, ...disabledStyle(!canGenerate) }}
+                    onClick={() => handleGenerate(false)}
+                    disabled={!canGenerate}
+                  >
+                    <FileText size={16} /> إنشاء ملف PDF
+                  </button>
+                  <button
+                    style={{ ...s.btn, ...s.btnSecondary, ...disabledStyle(!canGenerate) }}
+                    onClick={() => handleGenerate(true)}
+                    disabled={!canGenerate}
+                  >
+                    <FileText size={16} /> إنشاء PDF مع الملخّص
+                  </button>
+                </>
               )}
               {run.status === "success" && (
                 <button

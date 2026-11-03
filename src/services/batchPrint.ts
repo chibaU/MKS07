@@ -170,6 +170,7 @@ export interface CreateBatchPdfParams {
   dateTo: string;
   /** بصمة المعاينة التي رآها المستخدم — إن تغيّرت القائمة بعدها يُرفَض التوليد. */
   previewSignature: string;
+  includeRepeatedProductSummary?: boolean;
   onProgress: (p: BatchProgress) => void;
   /** يُستعلَم بين الخطوات؛ true = أوقف بعد الخطوة الجارية ونظّف. */
   isCancelled: () => boolean;
@@ -182,7 +183,7 @@ export interface CreateBatchPdfParams {
  * كل الحالات.
  */
 export async function createBatchPdf(params: CreateBatchPdfParams): Promise<BatchPdfResult> {
-  const { merchantId, merchantName, dateFrom, dateTo, previewSignature, onProgress, isCancelled } = params;
+  const { merchantId, merchantName, dateFrom, dateTo, previewSignature, onProgress, isCancelled, includeRepeatedProductSummary = false } = params;
 
   const rangeError = validateRange(dateFrom, dateTo);
   if (rangeError) throw new BatchError(rangeError);
@@ -249,7 +250,7 @@ export async function createBatchPdf(params: CreateBatchPdfParams): Promise<Batc
         await invoke("batch_invoice_pdf_add_invoice", {
           batchId,
           index: i,
-          data: buildPayload(full),
+          data: buildPayload(full, includeRepeatedProductSummary),
         });
       } catch (e) {
         const err = parseCmdError(e);

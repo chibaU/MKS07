@@ -208,11 +208,11 @@ export function InvoicesPage({
     setSelectedInvoice(null); // إعادة تعيين الفاتورة المفتوحة عند تغيير الصفحة/البحث
   }, [loadInvoices]);
 
-  const handlePrint = async (id: number) => {
+  const handlePrint = async (id: number, includeRepeatedProductSummary = false) => {
     if (printingId !== null) return;
     setPrintingId(id);
     try {
-      await printInvoice(id);
+      await printInvoice(id, includeRepeatedProductSummary);
     } catch (error) {
       console.error("خطأ أثناء طباعة الفاتورة:", error);
       alert(
@@ -493,6 +493,20 @@ export function InvoicesPage({
                 }}
               >
                 <Printer size={14} /> {printingId === selectedInvoice.id ? "جارٍ التوليد..." : "طباعة"}
+              </button>
+              <button
+                onClick={() => handlePrint(selectedInvoice.id, true)}
+                disabled={printingId === selectedInvoice.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  border: "1px solid #A7F3D0", backgroundColor: "#ECFDF5", color: "#047857",
+                  borderRadius: "8px", padding: "8px 14px", fontSize: "13px", fontWeight: 600,
+                  cursor: printingId === selectedInvoice.id ? "not-allowed" : "pointer",
+                  opacity: printingId === selectedInvoice.id ? 0.6 : 1,
+                  fontFamily: "'Cairo', sans-serif",
+                }}
+              >
+                <Printer size={14} /> {printingId === selectedInvoice.id ? "جارٍ التوليد..." : "طباعة مع الملخّص"}
               </button>
               <button
                 onClick={() => onOpenInvoiceForEdit(selectedInvoice.id)}

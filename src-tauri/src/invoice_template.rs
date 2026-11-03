@@ -53,7 +53,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
-use umya_spreadsheet::{reader, writer, OrientationValues, Style, Worksheet};
+use umya_spreadsheet::{
+    reader, writer, Border, BorderStyleValues, HorizontalAlignmentValues, OrientationValues, Style,
+    Worksheet,
+};
 
 // zip: يُستخدَم فقط لمعالجة سطر واحد من خاصية <sheetView> الخام مباشرة —
 // راجع تعليق `preserve_rtl_view` أدناه لسبب الحاجة الحقيقية لهذا التحايل
@@ -329,6 +332,21 @@ pub struct InvoicePrintInput {
     /// البنود، محسوب في JS.
     pub total_boxes: String,
     pub items: Vec<InvoiceLineItemInput>,
+    /// ملخّص اختياري للطباعة وحدها. غيابه أو فراغه يبقي ملف الطباعة مطابقاً
+    /// للمسار القديم تماماً.
+    #[serde(default)]
+    pub repeated_product_summary: Vec<RepeatedProductSummaryInput>,
+}
+
+/// قيم هذا الجدول محسوبة ومنسقة في الواجهة بوحدات صحيحة (BigInt)، ثم تصل هنا
+/// كنصوص جاهزة للعرض؛ Rust لا يعيد جمعها أو يقربها إطلاقاً.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepeatedProductSummaryInput {
+    pub product: String,
+    pub total_weight: String,
+    pub break_even_price: String,
+    pub total_amount: String,
 }
 
 // ----------------------------------------------------------------------
@@ -592,6 +610,121 @@ if max_box_lines > 1 {
     }
 
     Ok(Some(band_row))
+}
+
+// ----------------------------------------------------------------------
+// ملخّص المنتجات المتكررة — يُنشأ في ملف الطباعة فقط، لا يملك كلمة مفتاحية
+// ولا يُحفظ في قاعدة البيانات. يوضع أسفل جدول البنود كي يعمل مع أي قالب قائم
+// من دون أن يطلب من التاجر تعديل القالب.
+// ----------------------------------------------------------------------
+
+fn repeated_summary_cell_style(header: bool) -> Style {
+    let mut style = Style::default();
+    style.get_font_mut().set_bold(header);
+    if header {
+        style.set_background_color("FFE2E8F0");
+    }
+    style
+        .get_alignment_mut()
+        .set_horizontal(HorizontalAlignmentValues::Center);
+
+    let mut border = Border::default();
+    border.set_style(BorderStyleValues::Thin);
+    border.get_color_mut().set_argb("FF64748B");
+    let borders = style.get_borders_mut();
+    borders.set_left(border.clone());
+    borders.set_right(border.clone());
+    borders.set_top(border.clone());
+    borders.set_bottom(border);
+    style
+}
+
+fn append_repeated_product_summary(
+    sheet: &mut Worksheet,
+    data: &InvoicePrintInput,
+    band_row: Option<u32>,
+) {
+    if data.repeated_product_summary.is_empty() {
+        return;
+    }
+
+    // جدول البنود يبدأ من أول خلية فعلية في صف {{بند}} إن وجدت. ذلك يضع
+    // الملخّص بمحاذاة الجدول الأصلي حتى في القوالب التي لا تبدأ من العمود A.
+    let first_col = band_row
+        .and_then(|row| {
+            sheet
+                .get_collection_by_row(&row)
+                .iter()
+                .map(|cell| *cell.get_coordinate().get_col_num())
+                .min()
+        })
+        .unwrap_or(1);
+    let title_row = match band_row {
+        // صف فارغ واحد بين جدول البنود والملخّص؛ الإدراج يحمي أي تذييل موجود
+        // في القالب من أن يُكتب فوقه.
+        Some(row) => row + data.items.len() as u32 + 1,
+        None => sheet.get_highest_row() + 2,
+    };
+    let row_count = data.repeated_product_summary.len() as u32 + 3; // عنوان + رأس + بنود + ملاحظة
+    sheet.insert_new_row(&title_row, &row_count);
+
+    let last_col = first_col + 3;
+    let title_range = format!(
+        "{}{}:{}{}",
+        col_letter(first_col),
+        title_row,
+        col_letter(last_col),
+        title_row
+    );
+    let note_row = title_row + row_count - 1;
+    let note_range = format!(
+        "{}{}:{}{}",
+        col_letter(first_col),
+        note_row,
+        col_letter(last_col),
+        note_row
+    );
+
+    sheet
+        .get_cell_mut((first_col, title_row))
+        .set_value_string("ملخّص المنتجات المتكرّرة");
+    let mut title_style = repeated_summary_cell_style(true);
+    title_style.get_font_mut().set_bold(true);
+    sheet.set_style((first_col, title_row), title_style);
+    sheet.add_merge_cells(title_range);
+
+    let header_row = title_row + 1;
+    let headers = ["المنتج", "الوزن الكلي", "سعر التعادل", "المبلغ الكلي"];
+    let header_style = repeated_summary_cell_style(true);
+    for (offset, header) in headers.iter().enumerate() {
+        let col = first_col + offset as u32;
+        sheet.get_cell_mut((col, header_row)).set_value_string(*header);
+        sheet.set_style((col, header_row), header_style.clone());
+    }
+
+    let body_style = repeated_summary_cell_style(false);
+    for (index, item) in data.repeated_product_summary.iter().enumerate() {
+        let row = header_row + 1 + index as u32;
+        let values = [
+            item.product.as_str(),
+            item.total_weight.as_str(),
+            item.break_even_price.as_str(),
+            item.total_amount.as_str(),
+        ];
+        for (offset, value) in values.iter().enumerate() {
+            let col = first_col + offset as u32;
+            sheet.get_cell_mut((col, row)).set_value_string(*value);
+            sheet.set_style((col, row), body_style.clone());
+        }
+    }
+
+    sheet.get_cell_mut((first_col, note_row)).set_value_string(
+        "سعر التعادل = المبلغ ÷ الوزن، مقصوص عند خانتين دون تقريب",
+    );
+    let mut note_style = Style::default();
+    note_style.get_font_mut().set_italic(true);
+    sheet.set_style((first_col, note_row), note_style);
+    sheet.add_merge_cells(note_range);
 }
 
 // ----------------------------------------------------------------------
@@ -933,6 +1066,7 @@ pub(crate) fn prepare_invoice_book(
         // إطلاقاً (شرط بيانات، لا شرط قالب). تُعيد رقم صف {{بند}} إن وُجد
         // فعلياً في القالب، لنستخدمه في apply_print_setup أدناه.
         let band_row = fill_template(sheet, data)?;
+        append_repeated_product_summary(sheet, data, band_row);
         apply_print_setup(sheet, band_row);
     }
     Ok((book, is_rtl_sheet))

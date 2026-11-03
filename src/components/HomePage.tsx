@@ -279,7 +279,7 @@ export function HomePage({
   // ── الوظيفة الجديدة لزر "حفظ" (القسم 3 نقطة 7): إغلاق الفاتورة النشطة ثم
   // إعادة تعيين نفس التبويب لمسودة عذراء جديدة (لا حفظ فعلي، يحدث تلقائياً
   // من أول بند) ──
-  const onCloseInvoice = useCallback(async (andPrint = false) => {
+  const onCloseInvoice = useCallback(async (andPrint = false, includeRepeatedProductSummary = false) => {
     if (!activeDraft || activeDraft.invoiceId === null || activeDraft.isClosing) return;
 
     const targetId = activeDraft.id;
@@ -294,7 +294,7 @@ export function HomePage({
         // القديم. لا ننتظر (await) هذا قبل تصفير التبويب لمسودة جديدة أدناه —
         // الفاتورة نفسها أُغلقت وحُفظت بالفعل (setOpenState أعلاه)، فطباعتها
         // عملية منفصلة تماماً لا يجب أن تُعطّل تجربة المستخدم بانتظارها.
-        printInvoice(invoiceId).catch((error) => {
+        printInvoice(invoiceId, includeRepeatedProductSummary).catch((error) => {
           console.error("خطأ أثناء توليد PDF الفاتورة:", error);
           alert(
             error instanceof Error
