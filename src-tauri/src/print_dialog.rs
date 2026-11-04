@@ -539,7 +539,7 @@ fn print_invoice_interactive_blocking(
 
     // نصدّر PDF كاملاً أولاً كي نعرف عدد الصفحات الحقيقي قبل فتح PrintDialog.
     let full_dir = job_dir.path().join("full");
-    let (full_pdf, page_count) = match convert_xlsx_to_pdf(app, &job_xlsx, &full_dir, None) {
+    let (_full_pdf, page_count) = match convert_xlsx_to_pdf(app, &job_xlsx, &full_dir, None) {
         Ok(result) => result,
         Err(message) => return PrintInvoiceOutcome::DialogUnavailable { message },
     };
@@ -558,9 +558,10 @@ fn print_invoice_interactive_blocking(
         }
     };
 
-    // All يستخدم PDF الكامل. Pages يعيد تصدير XLSX نفسه مع PageRange، فلا نغيّر
-    // ملف الفاتورة أو إعدادات الطباعة الجماعية، ولا نضيف محرك PDF جديداً.
-    let selected_pdf = if let Some(range) = page_range {
+    // All يحتفظ بمسار الطباعة الأصلي (XLSX مباشرة) للمحافظة على نفس النتيجة
+    // المعروفة. Pages فقط يعيد تصدير XLSX نفسه مع PageRange إلى PDF مؤقت،
+    // ثم يرسل PDF المصفّى إلى LibreOffice للطباعة. لا تتغير الطباعة الجماعية.
+    let document_to_print = if let Some(range) = page_range {
         let selected_dir = job_dir.path().join("selected");
         match convert_xlsx_to_pdf(app, &job_xlsx, &selected_dir, Some(range)) {
             Ok((path, selected_count)) => {
@@ -577,12 +578,12 @@ fn print_invoice_interactive_blocking(
             Err(message) => return PrintInvoiceOutcome::PrintFailed { message },
         }
     } else {
-        full_pdf
+        job_xlsx.clone()
     };
 
     let total_copies = clamp_copies(copies);
     for copy in 1..=total_copies {
-        if let Err(e) = run_soffice_headless_print(app, &selected_pdf, Some(&printer_name)) {
+        if let Err(e) = run_soffice_headless_print(app, &document_to_print, Some(&printer_name)) {
             let message = if total_copies > 1 {
                 format!("تعذّرت طباعة النسخة {copy} من {total_copies}: {e}")
             } else {
