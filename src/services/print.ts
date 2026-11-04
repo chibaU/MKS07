@@ -39,14 +39,13 @@
 // القديم (توليد الملف ثم فتحه بتطبيق الجداول الافتراضي عبر `openPath`) بدل
 // إفشال الطباعة بالكامل بصمت — مع رسالة توضيحية للمستخدم عبر الخطأ المُلقى.
 //
-// **قرار مقصود (٤) — نافذة الطباعة (Print Dialog) قبل الطباعة، بطلب صريح لاحق:**
-// لم تعد `printInvoice` تطبع فوراً على الطابعة المحفوظة؛ تعرض أولاً نافذة الطباعة
-// القياسية لويندوز (أمر Rust `print_dialog_show`، راجع print_dialog.rs) ليختار
-// المستخدم الطابعة وعدد النسخ، ثم تطبع بالمسار الصامت نفسه على اختياره
-// (`print_invoice_chosen`). "إلغاء" = لا طباعة ولا رسالة خطأ. الطابعة المحفوظة في
-// الإعدادات صارت **الاختيار الأولي** داخل النافذة فقط. إن تعذّر إظهار النافذة
-// تقنياً (أو على Linux، جهاز التطوير) يُستخدَم `print_invoice_direct` القديم كما
-// كان تماماً، فلا يتعطل أي شيء. الطباعات تُسلسَل بطابور (نافذة واحدة في كل مرة).
+// **قرار مقصود (٤) — نافذة الطباعة مع نطاق الصفحات:**
+// يُنشأ XLSX بالقالب الحالي ثم PDF مؤقت قبل عرض نافذة Windows، كي نعرف عدد
+// الصفحات الفعلي ونفعّل اختيار Pages بحدود صحيحة. عند اختيار نطاق محدد، يعيد
+// LibreOffice تصدير ذلك النطاق إلى PDF ويطبعه؛ عند اختيار All يبقى مسار طباعة
+// XLSX الأصلي كما هو. لا توجد اعتماديات جديدة: يُعاد استخدام LibreOffice وlopdf.
+// على Linux/عند تعذّر تجهيز النافذة قبل الاختيار، يبقى print_invoice_direct
+// مسار الرجوع القديم. "إلغاء" = لا طباعة ولا رسالة خطأ. الطباعات مسلسلة بطابور.
 // ============================================================================
 
 import { invoke } from "@tauri-apps/api/core";
@@ -136,36 +135,66 @@ export function buildPayload(full: InvoiceFullDetails, includeRepeatedProductSum
   };
 }
 
-/// نتيجة أمر `print_dialog_show` (راجع print_dialog.rs).
-type PrintDialogResult =
-  | { status: "ok"; printerName: string; copies: number }
+/// نتيجة أمر `print_invoice_with_dialog` (راجع print_dialog.rs).
+type PrintInvoiceOutcome =
+  | { status: "printed" }
   | { status: "cancelled" }
   | { status: "unsupported" }
-  | { status: "noPrinters" };
+  | { status: "noPrinters" }
+  | { status: "dialogUnavailable"; message: string }
+  | { status: "printFailed"; message: string };
 
 let printQueue: Promise<unknown> = Promise.resolve();
 
-/// يجلب بيانات الفاتورة الكاملة والموثوقة، ثم يعرض **نافذة الطباعة القياسية** (القرار
-/// المقصود رقم ٤ أعلى الملف) ويطبع على اختيار المستخدم، بلا فتح أي نافذة
-/// LibreOffice/Excel إطلاقاً (القرار المقصود رقم ٣):
-/// يملأ القالب عبر أمر Rust (نفس منطق `fill_template` المستخدَم سابقاً بلا
-/// تغيير)، ثم يستدعي `soffice --headless` من سطر الأوامر ليرسل الملف مباشرة
-/// للطابعة التي اختارها المستخدم في النافذة (وإن تعذّر إظهارها: المحفوظة في الإعدادات
-/// أو طابعة النظام الافتراضية، كما كان سابقاً). "إلغاء" من النافذة: يعود بلا طباعة وبلا خطأ.
-///
-/// عند فشل الطباعة الصامتة تحديداً (LibreOffice غير مثبَّت، اسم طابعة غير
-/// صحيح، إلخ) — **مسار احتياطي تلقائي**: يفتح الملف بتطبيق الجداول
-/// الافتراضي (Excel/LibreOffice Calc) كما كان يحدث سابقاً، ليطبعه المستخدم
-/// يدوياً، بدل إفشال العملية بالكامل. لا يزال يُلقي (throw) خطأً عربياً
-/// واضحاً في حال فشل حتى بناء الملف نفسه (قالب مفقود/فاسد، فاتورة بلا بنود،
-/// إلخ) — على المستدعي (المكوّن) عرضه للمستخدم بطريقته المعتادة (alert/toast).
+/// يجلب بيانات الفاتورة الكاملة والموثوقة، ثم ينفّذ الطباعة التفاعلية:
+/// يبني XLSX من القالب الحالي، يحوّله إلى PDF لمعرفة عدد الصفحات، يعرض نافذة
+/// Windows مع نطاق صالح، ثم يصدّر النطاق المختار إلى PDF ويطبعه عبر LibreOffice.
+/// على Linux أو عند تعذّر تجهيز نافذة النطاق نرجع للمسار الصامت السابق.
+/// لا تتغير الطباعة الجماعية ولا قالب الفاتورة.
 export function printInvoice(invoiceId: number, includeRepeatedProductSummary = false): Promise<void> {
-  // طابور: تظهر نافذة طباعة واحدة في كل مرة (ضغطتان متتاليتان لا تفتحان نافذتين
-  // معاً، ولا تتزاحم الطباعتان على مجلد الملفات المولَّدة). فشل طباعة لا يوقف
-  // اللاحقة، والخطأ يصل لمستدعيه وحده.
+  // طابور: تظهر نافذة طباعة واحدة في كل مرة ولا تتزاحم الملفات المؤقتة.
   const run = printQueue.then(() => printInvoiceNow(invoiceId, includeRepeatedProductSummary));
   printQueue = run.catch(() => undefined);
   return run;
+}
+
+async function openInvoiceFileManually(
+  payload: InvoicePrintPayload,
+): Promise<boolean> {
+  try {
+    const result = await invoke<GenerateInvoiceFileResult>("generate_invoice_file", {
+      data: payload,
+    });
+    await openPath(result.path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/// المسار القديم محفوظ كرجوع احتياطي عند عدم دعم نافذة Windows أو تعذّر تجهيزها.
+/// لا يُستخدم هذا الرجوع بعد أن يختار المستخدم نطاقاً ثم تفشل طباعته، كي لا
+/// نطبع الفاتورة كاملة خلافاً لاختياره.
+async function printInvoiceDirectFallback(
+  payload: InvoicePrintPayload,
+  savedPrinter: string | null,
+): Promise<void> {
+  try {
+    await invoke("print_invoice_direct", {
+      data: payload,
+      printerName: savedPrinter,
+    });
+  } catch (directPrintError) {
+    const openedManually = await openInvoiceFileManually(payload);
+    const directMessage =
+      directPrintError instanceof Error ? directPrintError.message : String(directPrintError);
+    if (openedManually) {
+      throw new Error(
+        `تعذّرت الطباعة المباشرة الصامتة (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
+      );
+    }
+    throw new Error(directMessage || "تعذّرت طباعة الفاتورة.");
+  }
 }
 
 async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary: boolean): Promise<void> {
@@ -182,58 +211,47 @@ async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary:
   const printerName = (await settingsService.get(SETTINGS_KEY_PRINTER_NAME)) ?? "";
   const savedPrinter = printerName.trim() === "" ? null : printerName.trim();
 
-  // نافذة الطباعة أولاً (القرار المقصود ٤). فشلها التقني لا يمنع الطباعة: نرجع
-  // للمسار الصامت القديم كما كان، ونسجّل السبب فقط.
-  let choice: PrintDialogResult | null = null;
+  let outcome: PrintInvoiceOutcome;
   try {
-    choice = await invoke<PrintDialogResult>("print_dialog_show", { defaultPrinter: savedPrinter });
+    outcome = await invoke<PrintInvoiceOutcome>("print_invoice_with_dialog", {
+      data: payload,
+      defaultPrinter: savedPrinter,
+    });
   } catch (dialogError) {
-    console.error("تعذّر إظهار نافذة الطباعة — الرجوع للطباعة الصامتة:", dialogError);
+    console.error("تعذّر تنفيذ مسار الطباعة بنطاق الصفحات — الرجوع للطباعة الصامتة:", dialogError);
+    await printInvoiceDirectFallback(payload, savedPrinter);
+    return;
   }
 
-  if (choice?.status === "cancelled") {
-    return; // ألغى المستخدم: لا طباعة ولا رسالة.
-  }
-  if (choice?.status === "noPrinters") {
-    throw new Error("لا توجد أي طابعة مثبَّتة على هذا الجهاز. ثبّت طابعة ثم أعد المحاولة.");
-  }
-  const chosen = choice?.status === "ok" ? choice : null;
+  switch (outcome.status) {
+    case "printed":
+    case "cancelled":
+      return;
 
-  try {
-    if (chosen) {
-      await invoke("print_invoice_chosen", {
-        data: payload,
-        printerName: chosen.printerName,
-        copies: chosen.copies,
-      });
-    } else {
-      await invoke("print_invoice_direct", {
-        data: payload,
-        printerName: savedPrinter,
-      });
-    }
-  } catch (directPrintError) {
-    // مسار احتياطي: نفس المنطق القديم بالضبط (توليد الملف ثم فتحه). نبني
-    // الملف من جديد بدل إعادة استخدام مسار قديم محتمل حُذف أصلاً عبر سياسة
-    // التنظيف (cleanup_generated_dir) — استدعاء رخيص، لا حاجة للتوفير هنا.
-    let openedManually = false;
-    try {
-      const result = await invoke<GenerateInvoiceFileResult>("generate_invoice_file", {
-        data: payload,
-      });
-      await openPath(result.path);
-      openedManually = true;
-    } catch {
-      // تجاهل: الخطأ الأصلي (فشل الطباعة الصامتة) أهم وأوضح للمستخدم أدناه.
-    }
+    case "unsupported":
+      // Ubuntu وبيئات غير Windows تحتفظ بسلوك التطوير السابق.
+      await printInvoiceDirectFallback(payload, savedPrinter);
+      return;
 
-    const directMessage =
-      directPrintError instanceof Error ? directPrintError.message : String(directPrintError);
-    if (openedManually) {
-      throw new Error(
-        `${chosen ? "تعذّرت الطباعة على الطابعة المختارة" : "تعذّرت الطباعة المباشرة الصامتة"} (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
-      );
+    case "dialogUnavailable":
+      // لم يُكمل المستخدم اختياراً؛ نحافظ على الرجوع القديم بدلاً من تعطيل الطباعة.
+      console.error("تعذّر تجهيز نافذة الطباعة ذات نطاق الصفحات:", outcome.message);
+      await printInvoiceDirectFallback(payload, savedPrinter);
+      return;
+
+    case "noPrinters":
+      throw new Error("لا توجد أي طابعة مثبَّتة على هذا الجهاز. ثبّت طابعة ثم أعد المحاولة.");
+
+    case "printFailed": {
+      // المستخدم اختار نطاقاً بالفعل. لا نرجع للطباعة الكاملة بصمت؛ نفتح XLSX
+      // يدوياً كي يستطيع مراجعته أو طباعته بنفسه، مع إظهار سبب فشل النطاق.
+      const openedManually = await openInvoiceFileManually(payload);
+      if (openedManually) {
+        throw new Error(
+          `${outcome.message} — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، ويمكنك الطباعة منه الآن.`,
+        );
+      }
+      throw new Error(outcome.message || "تعذّرت طباعة الصفحات المختارة.");
     }
-    throw new Error(directMessage || "تعذّرت طباعة الفاتورة.");
   }
 }

@@ -10,8 +10,9 @@ mod invoice_template;
 // للقراءة فقط على القاعدة، ولا تستخدم مسار الطباعة الصامتة إطلاقاً.
 mod batch_pdf_core;
 mod batch_invoice_pdf;
-// نافذة الطباعة الحقيقية لويندوز قبل طباعة الفاتورة العادية (AI_CONTEXT.md 6.7/8).
-// أمران جديدان بجانب print_invoice_direct (الذي لم يُمَس)، للطباعة بعد الاختيار.
+// نافذة الطباعة الفردية لويندوز مع اختيار نطاق الصفحات (AI_CONTEXT.md 6.7/8).
+// أمر تفاعلي واحد يقود XLSX -> PDF لعد الصفحات -> PrintDialog -> طباعة النطاق.
+// print_invoice_direct يبقى مسار رجوع احتياطياً كما كان.
 mod print_dialog;
 // ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
 mod activation;
@@ -170,9 +171,9 @@ pub fn run() {
             batch_invoice_pdf::batch_invoice_pdf_cleanup,
             // زر "فتح مكان الملف" بعد نجاح الدفعة (يكشف PDF الناتج في المستكشف).
             batch_invoice_pdf::batch_invoice_pdf_reveal,
-            // نافذة الطباعة (PrintDialog) ثم الطباعة على الطابعة المختارة بعدد النسخ.
-            print_dialog::print_dialog_show,
-            print_dialog::print_invoice_chosen,
+            // الطباعة الفردية بنطاق صفحات: XLSX -> PDF لمعرفة الصفحات -> PrintDialog
+            // -> PDF بالنطاق المختار -> الطباعة على الطابعة المختارة.
+            print_dialog::print_invoice_with_dialog,
             activation::verify_activation_code,
             // ميزة مزامنة الهاتف — كل أوامرها بالبادئة phone_sync_ (معزولة عن ما سبق).
             phone_sync::phone_sync_status,
