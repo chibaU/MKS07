@@ -170,9 +170,9 @@ pub fn run() {
             batch_invoice_pdf::batch_invoice_pdf_cleanup,
             // زر "فتح مكان الملف" بعد نجاح الدفعة (يكشف PDF الناتج في المستكشف).
             batch_invoice_pdf::batch_invoice_pdf_reveal,
-            // نافذة الطباعة (PrintDialog) ثم الطباعة على الطابعة المختارة بعدد النسخ.
-            print_dialog::print_dialog_show,
-            print_dialog::print_invoice_chosen,
+            // الطباعة الفردية بنطاق صفحات: XLSX -> PDF لمعرفة الصفحات -> PrintDialog
+            // -> PDF بالنطاق المختار -> الطباعة على الطابعة المختارة.
+            print_dialog::print_invoice_with_dialog,
             activation::verify_activation_code,
             // ميزة مزامنة الهاتف — كل أوامرها بالبادئة phone_sync_ (معزولة عن ما سبق).
             phone_sync::phone_sync_status,
