@@ -39,14 +39,13 @@
 // القديم (توليد الملف ثم فتحه بتطبيق الجداول الافتراضي عبر `openPath`) بدل
 // إفشال الطباعة بالكامل بصمت — مع رسالة توضيحية للمستخدم عبر الخطأ المُلقى.
 //
-// **قرار مقصود (٤) — نافذة الطباعة (Print Dialog) قبل الطباعة، بطلب صريح لاحق:**
-// لم تعد `printInvoice` تطبع فوراً على الطابعة المحفوظة؛ تعرض أولاً نافذة الطباعة
-// القياسية لويندوز (أمر Rust `print_dialog_show`، راجع print_dialog.rs) ليختار
-// المستخدم الطابعة وعدد النسخ، ثم تطبع بالمسار الصامت نفسه على اختياره
-// (`print_invoice_chosen`). "إلغاء" = لا طباعة ولا رسالة خطأ. الطابعة المحفوظة في
-// الإعدادات صارت **الاختيار الأولي** داخل النافذة فقط. إن تعذّر إظهار النافذة
-// تقنياً (أو على Linux، جهاز التطوير) يُستخدَم `print_invoice_direct` القديم كما
-// كان تماماً، فلا يتعطل أي شيء. الطباعات تُسلسَل بطابور (نافذة واحدة في كل مرة).
+// **قرار مقصود (٤) — نافذة الطباعة مع نطاق الصفحات:**
+// يُنشأ XLSX بالقالب الحالي ثم PDF مؤقت قبل عرض نافذة Windows، كي نعرف عدد
+// الصفحات الفعلي ونفعّل اختيار Pages بحدود صحيحة. عند اختيار نطاق محدد، يعيد
+// LibreOffice تصدير ذلك النطاق إلى PDF ويطبعه؛ عند اختيار All يبقى مسار طباعة
+// XLSX الأصلي كما هو. لا توجد اعتماديات جديدة: يُعاد استخدام LibreOffice وlopdf.
+// على Linux/عند تعذّر تجهيز النافذة قبل الاختيار، يبقى print_invoice_direct
+// مسار الرجوع القديم. "إلغاء" = لا طباعة ولا رسالة خطأ. الطباعات مسلسلة بطابور.
 // ============================================================================
 
 import { invoke } from "@tauri-apps/api/core";
@@ -136,7 +135,7 @@ export function buildPayload(full: InvoiceFullDetails, includeRepeatedProductSum
   };
 }
 
-/// نتيجة أمر \`print_invoice_with_dialog\` (راجع print_dialog.rs).
+/// نتيجة أمر `print_invoice_with_dialog` (راجع print_dialog.rs).
 type PrintInvoiceOutcome =
   | { status: "printed" }
   | { status: "cancelled" }
@@ -191,7 +190,7 @@ async function printInvoiceDirectFallback(
       directPrintError instanceof Error ? directPrintError.message : String(directPrintError);
     if (openedManually) {
       throw new Error(
-        \`تعذّرت الطباعة المباشرة الصامتة (\${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.\`,
+        `تعذّرت الطباعة المباشرة الصامتة (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
       );
     }
     throw new Error(directMessage || "تعذّرت طباعة الفاتورة.");
@@ -249,7 +248,7 @@ async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary:
       const openedManually = await openInvoiceFileManually(payload);
       if (openedManually) {
         throw new Error(
-          \`\${outcome.message} — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، ويمكنك الطباعة منه الآن.\`,
+          `${outcome.message} — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، ويمكنك الطباعة منه الآن.`,
         );
       }
       throw new Error(outcome.message || "تعذّرت طباعة الصفحات المختارة.");
