@@ -410,7 +410,7 @@ export function InvoiceLineEntry({
 
           <div style={{ maxHeight: "340px", overflowY: "auto", margin: "-2px", padding: "2px" }}>
             {entry.boxes.length > 0 ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
                 {entry.boxes.map((box) => (
                   <BoxCard key={box.id} box={box} onCountChange={updateBox} />
                 ))}
