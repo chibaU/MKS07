@@ -29,24 +29,27 @@
 // صريح لاحق من صاحب المشروع، الشرط الفعلي لم يكن "ممنوع أي طباعة صامتة"
 // كمبدأ مطلق، بل تحديداً: **لا تظهر نافذة LibreOffice أو Excel نفسها** (أي
 // نافذة أخرى، كحوار طباعة نظام التشغيل، كانت لتكون مقبولة لو احتجناها).
-// `printInvoice` أدناه الآن تطبع مباشرة وصامتة عبر أمر Rust جديد
-// (`print_invoice_direct`، راجع الملاحظة المعمارية في invoice_template.rs)
-// يشغّل LibreOffice في وضع `--headless` من سطر الأوامر — بلا فتح أي تطبيق
-// جداول مرئي إطلاقاً، وبلا حتى حوار طباعة (طباعة صامتة كاملة على الطابعة
-// المختارة في الإعدادات، أو طابعة النظام الافتراضية).
-// **مسار احتياطي متعمَّد:** لو فشلت الطباعة الصامتة (LibreOffice غير مثبَّت
-// على جهاز المستخدم، طابعة غير موجودة بهذا الاسم، إلخ)، نرجع تلقائياً للمسار
-// القديم (توليد الملف ثم فتحه بتطبيق الجداول الافتراضي عبر `openPath`) بدل
-// إفشال الطباعة بالكامل بصمت — مع رسالة توضيحية للمستخدم عبر الخطأ المُلقى.
+// الطباعة تتم عبر LibreOffice في وضع `--headless` من سطر الأوامر (راجع
+// الملاحظة المعمارية في invoice_template.rs) — بلا فتح أي تطبيق جداول مرئي.
+// **مسار احتياطي متعمَّد:** لو فشل تجهيز النافذة تقنياً (أو على Linux، جهاز
+// التطوير)، نرجع للمسار الصامت المباشر `print_invoice_direct` على الطابعة
+// المحفوظة في الإعدادات، وإن فشل هو أيضاً (LibreOffice غير مثبَّت، طابعة غير
+// موجودة...) نفتح ملف xlsx بتطبيق الجداول الافتراضي ليُطبَع يدوياً.
 //
-// **قرار مقصود (٤) — نافذة الطباعة (Print Dialog) قبل الطباعة، بطلب صريح لاحق:**
-// لم تعد `printInvoice` تطبع فوراً على الطابعة المحفوظة؛ تعرض أولاً نافذة الطباعة
-// القياسية لويندوز (أمر Rust `print_dialog_show`، راجع print_dialog.rs) ليختار
-// المستخدم الطابعة وعدد النسخ، ثم تطبع بالمسار الصامت نفسه على اختياره
-// (`print_invoice_chosen`). "إلغاء" = لا طباعة ولا رسالة خطأ. الطابعة المحفوظة في
-// الإعدادات صارت **الاختيار الأولي** داخل النافذة فقط. إن تعذّر إظهار النافذة
-// تقنياً (أو على Linux، جهاز التطوير) يُستخدَم `print_invoice_direct` القديم كما
-// كان تماماً، فلا يتعطل أي شيء. الطباعات تُسلسَل بطابور (نافذة واحدة في كل مرة).
+// **قرار مقصود (٤) — نافذة الطباعة الخاصة بالتطبيق، بطلب صريح لاحق:**
+// لم تعد الطباعة العادية تعرض نافذة ويندوز القياسية (كانت تُعرَض قبل وجود أي
+// مستند فتعجز عن نطاق الصفحات). المسار الآن (التفصيل في print_dialog.rs):
+//   1) `print_prepare`: يبني xlsx ويحوّله إلى PDF مؤقت ويعدّ صفحاته (ثوانٍ؛
+//      يظهر مؤشر "جارٍ تجهيز الفاتورة للطباعة…" خلالها).
+//   2) نافذة التطبيق (PrintOptionsDialog): الطابعة، عدد النسخ، والصفحات —
+//      الكل، أو صفحة واحدة، أو مجال متتالٍ. الطابعة المحفوظة في الإعدادات هي
+//      الاختيار الأولي فيها.
+//   3) `print_execute`: "الكل" = المسار المتجهي المجرَّب (LibreOffice على xlsx)،
+//      وصفحات محددة = PowerShell يرسم صفحات الـPDF ويطبعها صوراً بدقة 300 DPI.
+//      فشل الطباعة هنا يظهر داخل النافذة التي تبقى مفتوحة لإعادة المحاولة.
+//   4) `print_job_cleanup`: حذف مجلد المهمة المؤقت دائماً (finally).
+// "إلغاء" من النافذة = لا طباعة ولا رسالة خطأ. الطباعات تُسلسَل بطابور (نافذة
+// واحدة في كل مرة).
 // ============================================================================
 
 import { invoke } from "@tauri-apps/api/core";
@@ -54,6 +57,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { invoiceService, type InvoiceFullDetails, settingsService, SETTINGS_KEY_PRINTER_NAME } from "./db";
 import { round2, formatMoney } from "../components/InvoiceShared";
 import { calculateRepeatedProductSummaries, type RepeatedProductSummary } from "./repeatedProductsSummary";
+import { hidePrintPreparing, requestPrintOptions, showPrintPreparing } from "./printOptions";
 
 interface InvoiceLineItemPayload {
   product: string;
@@ -136,32 +140,24 @@ export function buildPayload(full: InvoiceFullDetails, includeRepeatedProductSum
   };
 }
 
-/// نتيجة أمر `print_dialog_show` (راجع print_dialog.rs).
-type PrintDialogResult =
-  | { status: "ok"; printerName: string; copies: number }
-  | { status: "cancelled" }
+/// نتيجة أمر `print_prepare` (راجع print_dialog.rs).
+type PrintPrepareResult =
   | { status: "unsupported" }
-  | { status: "noPrinters" };
+  | { status: "ready"; jobId: string; pageCount: number; printers: string[] };
 
 let printQueue: Promise<unknown> = Promise.resolve();
 
-/// يجلب بيانات الفاتورة الكاملة والموثوقة، ثم يعرض **نافذة الطباعة القياسية** (القرار
-/// المقصود رقم ٤ أعلى الملف) ويطبع على اختيار المستخدم، بلا فتح أي نافذة
-/// LibreOffice/Excel إطلاقاً (القرار المقصود رقم ٣):
-/// يملأ القالب عبر أمر Rust (نفس منطق `fill_template` المستخدَم سابقاً بلا
-/// تغيير)، ثم يستدعي `soffice --headless` من سطر الأوامر ليرسل الملف مباشرة
-/// للطابعة التي اختارها المستخدم في النافذة (وإن تعذّر إظهارها: المحفوظة في الإعدادات
-/// أو طابعة النظام الافتراضية، كما كان سابقاً). "إلغاء" من النافذة: يعود بلا طباعة وبلا خطأ.
+/// يجلب بيانات الفاتورة الكاملة والموثوقة، يجهّزها للطباعة، ويعرض **نافذة الطباعة
+/// الخاصة بالتطبيق** (القرار المقصود رقم ٤ أعلى الملف) ثم يطبع على اختيار
+/// المستخدم. تُنجَز الوعدة بعد الطباعة، أو فور إلغاء المستخدم (بلا خطأ).
 ///
-/// عند فشل الطباعة الصامتة تحديداً (LibreOffice غير مثبَّت، اسم طابعة غير
-/// صحيح، إلخ) — **مسار احتياطي تلقائي**: يفتح الملف بتطبيق الجداول
-/// الافتراضي (Excel/LibreOffice Calc) كما كان يحدث سابقاً، ليطبعه المستخدم
-/// يدوياً، بدل إفشال العملية بالكامل. لا يزال يُلقي (throw) خطأً عربياً
-/// واضحاً في حال فشل حتى بناء الملف نفسه (قالب مفقود/فاسد، فاتورة بلا بنود،
-/// إلخ) — على المستدعي (المكوّن) عرضه للمستخدم بطريقته المعتادة (alert/toast).
+/// تُلقي (throw) خطأً عربياً واضحاً إن فشل تجهيز الملف نفسه (قالب مفقود/فاسد،
+/// فاتورة بلا بنود، إلخ) ولم ينجح المسار الاحتياطي — على المستدعي (المكوّن)
+/// عرضه للمستخدم بطريقته المعتادة (alert/toast). أما فشل الطباعة بعد ظهور النافذة
+/// فيُعرَض داخل النافذة نفسها ولا يصل المستدعي.
 export function printInvoice(invoiceId: number, includeRepeatedProductSummary = false): Promise<void> {
   // طابور: تظهر نافذة طباعة واحدة في كل مرة (ضغطتان متتاليتان لا تفتحان نافذتين
-  // معاً، ولا تتزاحم الطباعتان على مجلد الملفات المولَّدة). فشل طباعة لا يوقف
+  // معاً، ولا تتزاحم الطباعتان على الملفات المؤقتة). فشل طباعة لا يوقف
   // اللاحقة، والخطأ يصل لمستدعيه وحده.
   const run = printQueue.then(() => printInvoiceNow(invoiceId, includeRepeatedProductSummary));
   printQueue = run.catch(() => undefined);
@@ -179,42 +175,64 @@ async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary:
 
   const payload = buildPayload(full, includeRepeatedProductSummary);
 
-  const printerName = (await settingsService.get(SETTINGS_KEY_PRINTER_NAME)) ?? "";
-  const savedPrinter = printerName.trim() === "" ? null : printerName.trim();
+  const savedPrinter = ((await settingsService.get(SETTINGS_KEY_PRINTER_NAME)) ?? "").trim();
 
-  // نافذة الطباعة أولاً (القرار المقصود ٤). فشلها التقني لا يمنع الطباعة: نرجع
-  // للمسار الصامت القديم كما كان، ونسجّل السبب فقط.
-  let choice: PrintDialogResult | null = null;
+  // تجهيز المهمة (xlsx ← PDF ← عدد الصفحات). فشله التقني لا يمنع الطباعة: نرجع
+  // للمسار الصامت القديم كما كان، ونسجّل السبب فقط. على غير ويندوز يرجع
+  // `unsupported` فنسلك المسار نفسه.
+  showPrintPreparing();
+  let prepared: PrintPrepareResult | null = null;
   try {
-    choice = await invoke<PrintDialogResult>("print_dialog_show", { defaultPrinter: savedPrinter });
-  } catch (dialogError) {
-    console.error("تعذّر إظهار نافذة الطباعة — الرجوع للطباعة الصامتة:", dialogError);
+    prepared = await invoke<PrintPrepareResult>("print_prepare", { data: payload });
+  } catch (prepareError) {
+    console.error("تعذّر تجهيز نافذة الطباعة — الرجوع للطباعة الصامتة:", prepareError);
   }
 
-  if (choice?.status === "cancelled") {
-    return; // ألغى المستخدم: لا طباعة ولا رسالة.
+  if (!prepared || prepared.status !== "ready") {
+    hidePrintPreparing();
+    await printSilentWithManualFallback(payload, savedPrinter === "" ? null : savedPrinter);
+    return;
   }
-  if (choice?.status === "noPrinters") {
-    throw new Error("لا توجد أي طابعة مثبَّتة على هذا الجهاز. ثبّت طابعة ثم أعد المحاولة.");
-  }
-  const chosen = choice?.status === "ok" ? choice : null;
 
+  const { jobId, pageCount, printers } = prepared;
   try {
-    if (chosen) {
-      await invoke("print_invoice_chosen", {
-        data: payload,
-        printerName: chosen.printerName,
-        copies: chosen.copies,
-      });
-    } else {
-      await invoke("print_invoice_direct", {
-        data: payload,
-        printerName: savedPrinter,
-      });
-    }
+    await requestPrintOptions(
+      {
+        invoiceLabel: full.invoice_number ?? `#${full.id}`,
+        pageCount,
+        printers,
+        savedPrinter,
+      },
+      (choice) =>
+        invoke<void>("print_execute", {
+          jobId,
+          printerName: choice.printerName,
+          copies: choice.copies,
+          range: choice.range,
+          docName: full.invoice_number ?? "",
+        }),
+    );
+  } finally {
+    // تنظيف دائم (طباعة/إلغاء/خطأ). فشله لا يُخفي نتيجة الطباعة؛ ما يبقى تحذفه
+    // Rust تلقائياً عند تجهيز مهمة لاحقة بعد 6 ساعات.
+    invoke("print_job_cleanup", { jobId }).catch((cleanupError) => {
+      console.error("تعذّر حذف الملفات المؤقتة لمهمة الطباعة:", cleanupError);
+    });
+  }
+}
+
+/// المسار القديم كما كان (لم يتغيّر): طباعة صامتة مباشرة على الطابعة المحفوظة
+/// (أو الافتراضية)، وعند فشلها **مسار احتياطي تلقائي**: توليد الملف ثم فتحه
+/// بتطبيق الجداول الافتراضي (Excel/LibreOffice Calc) ليطبعه المستخدم يدوياً بدل
+/// إفشال العملية بالكامل.
+async function printSilentWithManualFallback(payload: InvoicePrintPayload, printerName: string | null): Promise<void> {
+  try {
+    await invoke("print_invoice_direct", {
+      data: payload,
+      printerName,
+    });
   } catch (directPrintError) {
-    // مسار احتياطي: نفس المنطق القديم بالضبط (توليد الملف ثم فتحه). نبني
-    // الملف من جديد بدل إعادة استخدام مسار قديم محتمل حُذف أصلاً عبر سياسة
+    // نبني الملف من جديد بدل إعادة استخدام مسار قديم محتمل حُذف أصلاً عبر سياسة
     // التنظيف (cleanup_generated_dir) — استدعاء رخيص، لا حاجة للتوفير هنا.
     let openedManually = false;
     try {
@@ -231,9 +249,10 @@ async function printInvoiceNow(invoiceId: number, includeRepeatedProductSummary:
       directPrintError instanceof Error ? directPrintError.message : String(directPrintError);
     if (openedManually) {
       throw new Error(
-        `${chosen ? "تعذّرت الطباعة على الطابعة المختارة" : "تعذّرت الطباعة المباشرة الصامتة"} (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
+        `تعذّرت الطباعة المباشرة الصامتة (${directMessage}) — تم فتح ملف الفاتورة يدوياً بدلاً من ذلك، يمكنك الطباعة منه الآن.`,
+        { cause: directPrintError },
       );
     }
-    throw new Error(directMessage || "تعذّرت طباعة الفاتورة.");
+    throw new Error(directMessage || "تعذّرت طباعة الفاتورة.", { cause: directPrintError });
   }
 }

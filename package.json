@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:repeated-summary": "node --experimental-strip-types --test tests/repeatedProductsSummary.test.ts",
+    "test:print-options": "node --experimental-strip-types --test tests/printOptions.test.ts",
     "preview": "vite preview" ,
     "tauri": "tauri"
   },

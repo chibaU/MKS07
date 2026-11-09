@@ -11,6 +11,7 @@ import { makeDraft, draftFromInvoice } from "./components/InvoiceManager";
 import type { Draft } from "./components/invoice";
 // ميزة مزامنة الهاتف: نقطة دخول واحدة صغيرة (الصفحة نفسها تُحمَّل كسولاً داخل حدّ أخطاء خاص بها).
 import { PhoneSyncEntry } from "./features/phoneSync/PhoneSyncEntry";
+import { PrintOptionsHost } from "./components/PrintOptionsDialog";
 
 type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "phoneSync" | "settings";
 
@@ -230,6 +231,7 @@ export default function App() {
         {activePage === "phoneSync" && <PhoneSyncEntry />}
         {activePage === "settings"  && <SettingsPage />}
       </main>
+      <PrintOptionsHost />
     </div>
   );
 }

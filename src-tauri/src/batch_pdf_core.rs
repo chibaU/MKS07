@@ -637,6 +637,51 @@ pub fn merge_pdfs(inputs: &[PathBuf], output: &Path) -> Result<MergeReport, Core
     Ok(MergeReport { total_pages: total, per_file_pages })
 }
 
+// ───────────────────────── طباعة صفحات محددة من فاتورة واحدة ─────────────────────────
+// (تستعملها print_dialog.rs: عدد صفحات الـPDF المؤقت ثم التحقق من النطاق الذي اختاره المستخدم.)
+
+/// عدد صفحات ملف PDF سليم (غير مشفَّر وفيه صفحة واحدة على الأقل).
+pub fn count_pdf_pages(path: &Path) -> Result<usize, CoreError> {
+    let doc = Document::load(path)
+        .map_err(|e| CoreError::new(format!("تعذّرت قراءة ملف PDF الناتج عن التحويل: {e}")))?;
+    if doc.is_encrypted() {
+        return Err(CoreError::new("ملف PDF الناتج مشفَّر بصورة غير متوقعة."));
+    }
+    let pages = doc.get_pages().len();
+    if pages == 0 {
+        return Err(CoreError::new("ملف PDF الناتج لا يحتوي أي صفحة."));
+    }
+    Ok(pages)
+}
+
+/// ما سيُطبَع من الفاتورة: كل صفحاتها، أو مجال متتالٍ منها (أرقام تبدأ من 1، شاملة الطرفين).
+/// صفحة واحدة = مجال `from == to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageSelection {
+    All,
+    Range { from: u32, to: u32 },
+}
+
+/// يتحقق من مجال صفحات يصل من الواجهة (لا نثق بها) مقابل العدد الفعلي `total`.
+/// مجال يغطي الفاتورة كلها يُعاد `All`، فيأخذ مسار الطباعة المتجهية الكامل بدل رسم الصور.
+pub fn page_selection(from: u32, to: u32, total: usize) -> Result<PageSelection, String> {
+    let total = u32::try_from(total).unwrap_or(u32::MAX);
+    if total == 0 {
+        return Err("الفاتورة لا تحتوي أي صفحة.".to_string());
+    }
+    if from < 1 || from > total || to < 1 || to > total {
+        return Err(format!("رقم الصفحة يجب أن يكون بين 1 و{total}."));
+    }
+    if from > to {
+        return Err("رقم صفحة البداية يجب ألا يتجاوز رقم صفحة النهاية.".to_string());
+    }
+    if from == 1 && to == total {
+        Ok(PageSelection::All)
+    } else {
+        Ok(PageSelection::Range { from, to })
+    }
+}
+
 // ───────────────────────── الاختبارات (الأجزاء البحتة + دمج PDF حقيقي صغير) ─────────────────────────
 
 #[cfg(test)]
@@ -1027,5 +1072,50 @@ mod tests {
         // لا مجلدات مسموحة أصلاً
         let f = touch(&dl, "فواتير_ب_2026-10-01_2026-10-31.pdf");
         assert!(resolve_reveal_target(&f.display().to_string(), &[]).is_err());
+    }
+
+    // ── طباعة صفحات محددة: عدّ الصفحات والتحقق من المجال ──
+
+    #[test]
+    fn count_pdf_pages_counts_real_pdf() {
+        let dir = temp_dir("count_pages");
+        for (pages, inherit) in [(1usize, false), (3, true), (7, false)] {
+            let path = dir.join(format!("p{pages}.pdf"));
+            fake_pdf("C", pages, inherit).save(&path).unwrap();
+            assert_eq!(count_pdf_pages(&path).unwrap(), pages);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn count_pdf_pages_rejects_broken_or_missing_files() {
+        let dir = temp_dir("count_bad");
+        let bad = dir.join("bad.pdf");
+        fs::write(&bad, b"not a pdf").unwrap();
+        assert!(count_pdf_pages(&bad).is_err());
+        assert!(count_pdf_pages(&dir.join("missing.pdf")).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn page_selection_accepts_valid_ranges() {
+        assert_eq!(page_selection(2, 2, 5).unwrap(), PageSelection::Range { from: 2, to: 2 });
+        assert_eq!(page_selection(2, 4, 5).unwrap(), PageSelection::Range { from: 2, to: 4 });
+        assert_eq!(page_selection(1, 4, 5).unwrap(), PageSelection::Range { from: 1, to: 4 });
+        assert_eq!(page_selection(5, 5, 5).unwrap(), PageSelection::Range { from: 5, to: 5 });
+    }
+
+    #[test]
+    fn page_selection_whole_document_collapses_to_all() {
+        assert_eq!(page_selection(1, 5, 5).unwrap(), PageSelection::All);
+        assert_eq!(page_selection(1, 1, 1).unwrap(), PageSelection::All);
+    }
+
+    #[test]
+    fn page_selection_rejects_out_of_range_and_reversed() {
+        for (from, to, total) in [(0, 1, 3), (1, 0, 3), (0, 0, 3), (4, 4, 3), (1, 4, 3), (3, 2, 3), (2, 1, 5), (u32::MAX, u32::MAX, 3)] {
+            assert!(page_selection(from, to, total).is_err(), "({from},{to}) من {total} يجب أن يُرفض");
+        }
+        assert!(page_selection(1, 1, 0).is_err());
     }
 }
