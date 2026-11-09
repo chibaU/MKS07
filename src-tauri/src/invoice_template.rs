@@ -53,10 +53,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
-use umya_spreadsheet::{
-    reader, writer, Border, BorderStyleValues, HorizontalAlignmentValues, OrientationValues, Style,
-    Worksheet,
-};
+use umya_spreadsheet::{reader, writer, OrientationValues, Style, Worksheet};
 
 // zip: يُستخدَم فقط لمعالجة سطر واحد من خاصية <sheetView> الخام مباشرة —
 // راجع تعليق `preserve_rtl_view` أدناه لسبب الحاجة الحقيقية لهذا التحايل
@@ -79,6 +76,14 @@ const TEMPLATE_FILENAME: &str = "invoice_template.xlsx";
 /// المسافات الزائدة من محتوى الخلية — لا substring هنا خلافاً لبقية الكلمات
 /// المفتاحية، لأنها يجب أن تبقى لا لبس فيها.
 const ROW_MARKER: &str = "{{بند}}";
+
+/// علامة صف جدول ملخّص المنتجات المتكررة. يجب أن تكون في صف مستقل عن {{بند}}.
+const SUMMARY_ROW_MARKER: &str = "{{ملخص}}";
+
+/// علامتا بداية ونهاية منطقة جدول الملخّص. وجودهما معاً يسمح بحذف الجدول
+/// كاملاً عندما لا توجد بيانات ملخّص، حتى لا تظهر رؤوسه في الطباعة العادية.
+const SUMMARY_SECTION_START_MARKER: &str = "{{ملخص_بداية}}";
+const SUMMARY_SECTION_END_MARKER: &str = "{{ملخص_نهاية}}";
 
 /// الحقول أحادية القيمة. الستة الأولى من جدول "نظام الكلمات المفتاحية" في
 /// توثيق المهمة 1؛ الاثنتان الأخيرتان (الوزن الكلي وعدد الصناديق الكلي)
@@ -132,6 +137,14 @@ const ROW_NUMBERING_KEYWORD: &str = "{{بند_الترقيم}}";
 /// فقط لتظهر في تقرير الفحص — لا تغيير آخر مطلوب لتفعيلها في التقرير.
 const ROW_OPTIONAL_KEYWORDS: [&str; 2] = [ROW_NUMBERING_KEYWORD, ROW_OPTIONAL_KEYWORD];
 
+/// كلمات الأعمدة داخل صف البيانات المتكرر لملخّص المنتجات.
+const SUMMARY_ROW_KEYWORDS: [&str; 4] = [
+    "{{ملخص_المنتج}}",
+    "{{ملخص_الوزن_الكلي}}",
+    "{{ملخص_سعر_التعادل}}",
+    "{{ملخص_المبلغ_الكلي}}",
+];
+
 /// حالة كلمة مفتاحية واحدة ضمن نتيجة الفحص المُعادة للواجهة.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +173,13 @@ pub struct TemplateUploadResult {
     /// بتنسيق محايد غير تحذيري (فهذه، خلافاً لسابقتها، لم تُصمَّم كـ"متوقَّعة
     /// عادةً" أصلاً — غيابها طبيعي تماماً في كثير من القوالب).
     pub row_optional_keywords: Vec<KeywordStatus>,
+    /// عدد خلايا {{ملخص}} في الورقة الأولى، مع اعتماد الصف الأعلى عند التكرار.
+    pub summary_marker_count: usize,
+    /// حالة كلمات الأعمدة الأربع في صف {{ملخص}} عند وجود علامة واحدة.
+    pub summary_row_keywords: Vec<KeywordStatus>,
+    /// عددا علامتي بداية ونهاية نطاق جدول الملخّص (اختياريتان).
+    pub summary_section_start_marker_count: usize,
+    pub summary_section_end_marker_count: usize,
     /// نتيجة فحص الحقول أحادية القيمة، تُحسب دائماً بصرف النظر عن حالة
     /// {{بند}}.
     pub single_value_keywords: Vec<KeywordStatus>,
@@ -220,6 +240,36 @@ fn scan_keywords(book: &umya_spreadsheet::Spreadsheet) -> Result<TemplateUploadR
         }
     }
 
+    // فحص صف الملخّص المستقل. علامة {{ملخص}} مطابقة تامة، وكلمات الأعمدة
+    // تُفحص داخل الصف نفسه كما نفعل مع كلمات صف {{بند}}.
+    let summary_cells: Vec<_> = cells
+        .iter()
+        .filter(|c| c.get_value().trim() == SUMMARY_ROW_MARKER)
+        .collect();
+    let summary_marker_count = summary_cells.len();
+    let mut summary_row_keywords = Vec::new();
+    if summary_marker_count == 1 {
+        let summary_row = *summary_cells[0].get_coordinate().get_row_num();
+        for kw in SUMMARY_ROW_KEYWORDS {
+            let found = cells.iter().any(|c| {
+                *c.get_coordinate().get_row_num() == summary_row && c.get_value().contains(kw)
+            });
+            summary_row_keywords.push(KeywordStatus {
+                keyword: kw.to_string(),
+                found,
+            });
+        }
+    }
+
+    let summary_section_start_marker_count = cells
+        .iter()
+        .filter(|c| c.get_value().trim() == SUMMARY_SECTION_START_MARKER)
+        .count();
+    let summary_section_end_marker_count = cells
+        .iter()
+        .filter(|c| c.get_value().trim() == SUMMARY_SECTION_END_MARKER)
+        .count();
+
     let mut single_value_keywords = Vec::new();
     for kw in SINGLE_VALUE_KEYWORDS {
         let found = cells.iter().any(|c| c.get_value().contains(kw));
@@ -233,6 +283,10 @@ fn scan_keywords(book: &umya_spreadsheet::Spreadsheet) -> Result<TemplateUploadR
         band_marker_count,
         row_keywords,
         row_optional_keywords,
+        summary_marker_count,
+        summary_row_keywords,
+        summary_section_start_marker_count,
+        summary_section_end_marker_count,
         single_value_keywords,
     })
 }
@@ -399,24 +453,61 @@ struct RowMergeSpan {
     end_col: u32,
 }
 
-/// يبحث عن صف {{بند}} **بلا أي تحقق قاطع** — لا خطأ إطلاقاً مهما كانت
-/// الحالة، اتساقاً مع كون كل الكلمات المفتاحية اختيارية دائماً (راجع تعليق
-/// القرار المعماري رقم 7 أعلاه). `None` يعني ببساطة "لا يوجد جدول بنود
-/// يُملأ في هذا القالب" — حالة صالحة تماماً، لا عطل.
-///
-/// عند وجود أكثر من خلية {{بند}} واحدة (غموض)، يُعتمَد **أعلى صف بها
-/// ترتيباً** (الأصغر رقماً) دون تحذير أو رفض — قرار حتمي وبسيط بدل تعقيد
-/// نقاش أي مطابقة "أصح" من الأخرى؛ الخلايا الأخرى المطابقة تبقى بنصها كما
-/// هي حرفياً في الناتج النهائي (لا تُعامَل كصف بند، ولا تُمسَح).
-fn find_band_row(sheet: &Worksheet) -> Option<u32> {
-    let cells = sheet.get_cell_collection();
-    let mut band_rows: Vec<u32> = cells
+/// يبحث عن جميع الصفوف التي تطابق علامة الصف تماماً بعد trim، ويرتبها تصاعدياً.
+/// عند تكرار العلامة، تختار الدالة الخاصة بكل جدول الصف الأعلى ترتيباً.
+fn find_marker_rows(sheet: &Worksheet, marker: &str) -> Vec<u32> {
+    let mut rows: Vec<u32> = sheet
+        .get_cell_collection()
         .iter()
-        .filter(|c| c.get_value().trim() == ROW_MARKER)
-        .map(|c| *c.get_coordinate().get_row_num())
+        .filter(|cell| cell.get_value().trim() == marker)
+        .map(|cell| *cell.get_coordinate().get_row_num())
         .collect();
-    band_rows.sort_unstable();
-    band_rows.first().copied()
+    rows.sort_unstable();
+    rows
+}
+
+/// يعيد صف {{بند}} الأعلى ترتيباً.
+fn find_band_row(sheet: &Worksheet) -> Option<u32> {
+    find_marker_rows(sheet, ROW_MARKER).first().copied()
+}
+
+/// يعيد صف {{ملخص}} الأعلى ترتيباً.
+fn find_summary_row(sheet: &Worksheet) -> Option<u32> {
+    find_marker_rows(sheet, SUMMARY_ROW_MARKER).first().copied()
+}
+
+/// لا يُعتمد نطاق الحذف إلا عند وجود علامة بداية واحدة وعلامة نهاية واحدة
+/// وبترتيب صحيح. العلامتان اختياريتان؛ من دونهما يُحذف صف البيانات وحده.
+fn find_summary_section_rows(sheet: &Worksheet) -> Option<(u32, u32)> {
+    let starts = find_marker_rows(sheet, SUMMARY_SECTION_START_MARKER);
+    let ends = find_marker_rows(sheet, SUMMARY_SECTION_END_MARKER);
+    if starts.len() != 1 || ends.len() != 1 || starts[0] > ends[0] {
+        return None;
+    }
+    Some((starts[0], ends[0]))
+}
+
+fn clear_summary_section_markers(sheet: &mut Worksheet) {
+    let positions: Vec<(u32, u32)> = sheet
+        .get_cell_collection()
+        .iter()
+        .filter(|cell| {
+    let cell_value = cell.get_value();
+    let value = cell_value.trim();
+
+    value == SUMMARY_SECTION_START_MARKER || value == SUMMARY_SECTION_END_MARKER
+})
+        .map(|cell| {
+            (
+                *cell.get_coordinate().get_col_num(),
+                *cell.get_coordinate().get_row_num(),
+            )
+        })
+        .collect();
+
+    for (col, row) in positions {
+        sheet.get_cell_mut((col, row)).set_value_string("");
+    }
 }
 
 /// يحفظ نسخة من نص/نمط/دمج صف {{بند}} **قبل** أي تعديل — لازم لأن
@@ -613,118 +704,163 @@ if max_box_lines > 1 {
 }
 
 // ----------------------------------------------------------------------
-// ملخّص المنتجات المتكررة — يُنشأ في ملف الطباعة فقط، لا يملك كلمة مفتاحية
-// ولا يُحفظ في قاعدة البيانات. يوضع أسفل جدول البنود كي يعمل مع أي قالب قائم
-// من دون أن يطلب من التاجر تعديل القالب.
+// ملخّص المنتجات المتكررة — جدول مستقل يصمّمه المستخدم داخل القالب.
+// التطبيق لا ينشئ عنواناً أو رؤوس أعمدة أو حدوداً أو ألواناً أو أحجام خطوط؛
+// إنه يستبدل الكلمات في صف {{ملخص}} ويكرر نمط ذلك الصف كما يفعل مع {{بند}}.
 // ----------------------------------------------------------------------
 
-fn repeated_summary_cell_style(header: bool) -> Style {
-    let mut style = Style::default();
-    style.get_font_mut().set_bold(header);
-    if header {
-        style.set_background_color("FFE2E8F0");
-    }
-    style
-        .get_alignment_mut()
-        .set_horizontal(HorizontalAlignmentValues::Center);
-
-    let mut border = Border::default();
-    border.set_style(BorderStyleValues::Thin);
-    border.get_color_mut().set_argb("FF64748B");
-    let borders = style.get_borders_mut();
-    borders.set_left(border.clone());
-    borders.set_right(border.clone());
-    borders.set_top(border.clone());
-    borders.set_bottom(border);
-    style
-}
-
-fn append_repeated_product_summary(
+fn fill_repeated_product_summary(
     sheet: &mut Worksheet,
     data: &InvoicePrintInput,
-    band_row: Option<u32>,
-) {
-    if data.repeated_product_summary.is_empty() {
-        return;
+    invoice_band_row: Option<u32>,
+) -> Result<Option<u32>, String> {
+    let summary_row = find_summary_row(sheet);
+    let summary_count = data.repeated_product_summary.len() as u32;
+    let section_rows = find_summary_section_rows(sheet);
+
+    // لا نعرض جدولاً فارغاً في الطباعة العادية أو عندما لا توجد منتجات متكررة.
+    // إذا حدد المستخدم نطاق الجدول بعلامتي البداية والنهاية نحذفه كاملاً؛
+    // وإلا نحذف صف البيانات الديناميكي وحده ونُبقي العناوين الثابتة كما صمّمها.
+    if summary_count == 0 || summary_row.is_none() {
+        let mut adjusted_band_row = invoice_band_row;
+
+        if let Some((section_start, section_end)) = section_rows {
+            if adjusted_band_row
+                .is_some_and(|row| (section_start..=section_end).contains(&row))
+            {
+                return Err(
+                    "نطاق جدول الملخّص يتداخل مع صف بنود الفاتورة. اجعل علامتي بداية ونهاية الملخّص تحيطان بالجدول المستقل فقط."
+                        .to_string(),
+                );
+            }
+
+            let removed_count = section_end - section_start + 1;
+            sheet.remove_row(&section_start, &removed_count);
+            adjusted_band_row = adjusted_band_row.map(|row| {
+                if row > section_end { row - removed_count } else { row }
+            });
+
+            // إذا وُضعت {{ملخص}} خارج النطاق المحدد، نحذف صفها أيضاً بعد
+            // تحديث إحداثياته إثر حذف النطاق.
+            if let Some(row) = summary_row {
+                if row < section_start || row > section_end {
+                    let row_after_section = if row > section_end {
+                        row - removed_count
+                    } else {
+                        row
+                    };
+                    if adjusted_band_row == Some(row_after_section) {
+                        return Err(
+                            "يجب وضع صف {{ملخص}} في صف مستقل عن صف {{بند}}."
+                                .to_string(),
+                        );
+                    }
+                    sheet.remove_row(&row_after_section, &1);
+                    adjusted_band_row = adjusted_band_row.map(|band| {
+                        if band > row_after_section { band - 1 } else { band }
+                    });
+                }
+            }
+        } else if let Some(row) = summary_row {
+            if adjusted_band_row == Some(row) {
+                return Err("يجب وضع صف {{ملخص}} في صف مستقل عن صف {{بند}}.".to_string());
+            }
+            sheet.remove_row(&row, &1);
+            adjusted_band_row = adjusted_band_row.map(|band| {
+                if band > row { band - 1 } else { band }
+            });
+        }
+
+        clear_summary_section_markers(sheet);
+        return Ok(adjusted_band_row);
     }
 
-    // جدول البنود يبدأ من أول خلية فعلية في صف {{بند}} إن وجدت. ذلك يضع
-    // الملخّص بمحاذاة الجدول الأصلي حتى في القوالب التي لا تبدأ من العمود A.
-    let first_col = band_row
-        .and_then(|row| {
-            sheet
-                .get_collection_by_row(&row)
-                .iter()
-                .map(|cell| *cell.get_coordinate().get_col_num())
-                .min()
-        })
-        .unwrap_or(1);
-    let title_row = match band_row {
-        // صف فارغ واحد بين جدول البنود والملخّص؛ الإدراج يحمي أي تذييل موجود
-        // في القالب من أن يُكتب فوقه.
-        Some(row) => row + data.items.len() as u32 + 1,
-        None => sheet.get_highest_row() + 2,
-    };
-    let row_count = data.repeated_product_summary.len() as u32 + 3; // عنوان + رأس + بنود + ملاحظة
-    sheet.insert_new_row(&title_row, &row_count);
-
-    let last_col = first_col + 3;
-    let title_range = format!(
-        "{}{}:{}{}",
-        col_letter(first_col),
-        title_row,
-        col_letter(last_col),
-        title_row
-    );
-    let note_row = title_row + row_count - 1;
-    let note_range = format!(
-        "{}{}:{}{}",
-        col_letter(first_col),
-        note_row,
-        col_letter(last_col),
-        note_row
-    );
-
-    sheet
-        .get_cell_mut((first_col, title_row))
-        .set_value_string("ملخّص المنتجات المتكرّرة");
-    let mut title_style = repeated_summary_cell_style(true);
-    title_style.get_font_mut().set_bold(true);
-    sheet.set_style((first_col, title_row), title_style);
-    sheet.add_merge_cells(title_range);
-
-    let header_row = title_row + 1;
-    let headers = ["المنتج", "الوزن الكلي", "سعر التعادل", "المبلغ الكلي"];
-    let header_style = repeated_summary_cell_style(true);
-    for (offset, header) in headers.iter().enumerate() {
-        let col = first_col + offset as u32;
-        sheet.get_cell_mut((col, header_row)).set_value_string(*header);
-        sheet.set_style((col, header_row), header_style.clone());
+    let summary_row = summary_row.expect("checked above");
+    if invoice_band_row == Some(summary_row) {
+        return Err("يجب وضع صف {{ملخص}} في صف مستقل عن صف {{بند}}.".to_string());
     }
 
-    let body_style = repeated_summary_cell_style(false);
-    for (index, item) in data.repeated_product_summary.iter().enumerate() {
-        let row = header_row + 1 + index as u32;
-        let values = [
-            item.product.as_str(),
-            item.total_weight.as_str(),
-            item.break_even_price.as_str(),
-            item.total_amount.as_str(),
-        ];
-        for (offset, value) in values.iter().enumerate() {
-            let col = first_col + offset as u32;
-            sheet.get_cell_mut((col, row)).set_value_string(*value);
-            sheet.set_style((col, row), body_style.clone());
+    if let Some((section_start, section_end)) = section_rows {
+        if invoice_band_row
+            .is_some_and(|row| (section_start..=section_end).contains(&row))
+        {
+            return Err(
+                "نطاق جدول الملخّص يتداخل مع صف بنود الفاتورة. اجعل علامتي بداية ونهاية الملخّص تحيطان بالجدول المستقل فقط."
+                    .to_string(),
+            );
+        }
+        if !(section_start..=section_end).contains(&summary_row) {
+            return Err(
+                "يجب أن يقع صف {{ملخص}} بين علامتي {{ملخص_بداية}} و{{ملخص_نهاية}} عند استخدامهما."
+                    .to_string(),
+            );
         }
     }
 
-    sheet.get_cell_mut((first_col, note_row)).set_value_string(
-        "سعر التعادل = المبلغ ÷ الوزن، مقصوص عند خانتين دون تقريب",
-    );
-    let mut note_style = Style::default();
-    note_style.get_font_mut().set_italic(true);
-    sheet.set_style((first_col, note_row), note_style);
-    sheet.add_merge_cells(note_range);
+    let (row_template, row_merges) = capture_row_template(sheet, summary_row);
+    let template_row_height: Option<f64> = sheet
+        .get_row_dimension(&summary_row)
+        .map(|row| *row.get_height())
+        .filter(|height| *height > 0.0);
+
+    // نضيف صفوفاً تحت صف {{ملخص}} فقط؛ insert_new_row يحافظ على بقية القالب
+    // ويزيح أي محتوى لاحق، سواء كان جدول الملخّص أعلى الفاتورة أو أسفلها.
+    if summary_count > 1 {
+        sheet.insert_new_row(&(summary_row + 1), &(summary_count - 1));
+    }
+
+    for (index, item) in data.repeated_product_summary.iter().enumerate() {
+        let target_row = summary_row + index as u32;
+        let replacements: Vec<(&str, &str)> = vec![
+            ("{{ملخص_المنتج}}", item.product.as_str()),
+            ("{{ملخص_الوزن_الكلي}}", item.total_weight.as_str()),
+            ("{{ملخص_سعر_التعادل}}", item.break_even_price.as_str()),
+            ("{{ملخص_المبلغ_الكلي}}", item.total_amount.as_str()),
+        ];
+
+        for tmpl_cell in &row_template {
+            let new_text = if tmpl_cell.text.trim() == SUMMARY_ROW_MARKER {
+                String::new()
+            } else {
+                substitute(tmpl_cell.text.clone(), &replacements)
+            };
+
+            if target_row != summary_row {
+                sheet.set_style((tmpl_cell.col, target_row), tmpl_cell.style.clone());
+            }
+            sheet
+                .get_cell_mut((tmpl_cell.col, target_row))
+                .set_value_string(new_text);
+        }
+
+        if let Some(height) = template_row_height {
+            sheet
+                .get_row_dimension_mut(&target_row)
+                .set_height(height);
+        }
+
+        if target_row != summary_row {
+            for merge in &row_merges {
+                let range = format!(
+                    "{}{}:{}{}",
+                    col_letter(merge.start_col),
+                    target_row,
+                    col_letter(merge.end_col),
+                    target_row
+                );
+                sheet.add_merge_cells(range);
+            }
+        }
+    }
+
+    clear_summary_section_markers(sheet);
+
+    // إذا كان جدول الملخّص أعلى جدول البنود، فإن صفوفه المضافة تزحزح صف
+    // {{بند}} إلى أسفل؛ نعيد موضعه الصحيح كي يبقى Print Titles متصلاً برأسه.
+    let adjusted_band_row = invoice_band_row.map(|row| {
+        if summary_row < row { row + summary_count - 1 } else { row }
+    });
+    Ok(adjusted_band_row)
 }
 
 // ----------------------------------------------------------------------
@@ -1066,8 +1202,8 @@ pub(crate) fn prepare_invoice_book(
         // إطلاقاً (شرط بيانات، لا شرط قالب). تُعيد رقم صف {{بند}} إن وُجد
         // فعلياً في القالب، لنستخدمه في apply_print_setup أدناه.
         let band_row = fill_template(sheet, data)?;
-        append_repeated_product_summary(sheet, data, band_row);
-        apply_print_setup(sheet, band_row);
+        let print_band_row = fill_repeated_product_summary(sheet, data, band_row)?;
+        apply_print_setup(sheet, print_band_row);
     }
     Ok((book, is_rtl_sheet))
 }

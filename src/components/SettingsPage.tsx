@@ -18,6 +18,10 @@ interface TemplateUploadResult {
   bandMarkerCount: number;
   rowKeywords: KeywordStatus[];
   rowOptionalKeywords: KeywordStatus[];
+  summaryMarkerCount: number;
+  summaryRowKeywords: KeywordStatus[];
+  summarySectionStartMarkerCount: number;
+  summarySectionEndMarkerCount: number;
   singleValueKeywords: KeywordStatus[];
 }
 
@@ -315,7 +319,8 @@ export function SettingsPage() {
           </div>
           <div style={s.cardTitle}>رفع نموذج الفاتورة</div>
           <div style={s.cardDesc}>
-            ارفع ملف Excel (xlsx) صممته بنفسك ليكون نموذج الفاتورة الرسمي، بالاعتماد على الكلمات المفتاحية الموضّحة أدناه.
+            ارفع ملف Excel (xlsx) صممته بنفسك ليكون نموذج الفاتورة الرسمي. يمكنك تصميم جدول البنود وجدول ملخّص المنتجات
+            المتكررة كلٌّ على حدة، وتحديد مكانهما وشكلهما بالكامل من القالب.
           </div>
 
           {/* حالة القالب الحالي */}
@@ -449,9 +454,13 @@ export function SettingsPage() {
           <div style={{ color: "#9A3412", fontSize: "13px", lineHeight: 1.9 }}>
             1. يعتمد التطبيق على <strong>الورقة الأولى فقط</strong> من ملف Excel المرفوع — أي أوراق إضافية يتم تجاهلها كلياً.
             <br />
-            2. خلية <strong>{"{{بند}}"}</strong> (بدون أي نص آخر معها في نفس الخلية) يُفضَّل أن تظهر <strong>مرة واحدة فقط</strong> في كامل الورقة، فهي التي تُعرّف صف تكرار بنود الفاتورة. كل الكلمات المفتاحية في هذا النظام اختيارية دون استثناء (راجع القسم أدناه) — فحتى غياب {"{{بند}}"} بالكامل لا يمنع الطباعة، فقط لن يظهر جدول بنود. وإن ظهرت أكثر من خلية واحدة، يُعتمَد أعلى صف بها ترتيباً تلقائياً بلا توقف.
+            2. خلية <strong>{"{{بند}}"}</strong> (بدون أي نص آخر معها في الخلية) تحدد صف تكرار بنود الفاتورة. يُفضَّل أن تظهر مرة واحدة فقط؛ وعند تكرارها يُعتمَد الصف الأعلى ترتيباً.
             <br />
-            3. <strong>يُمنع استخدام أي صيغة Excel</strong> (مثل <code>SUM</code> أو غيرها) تعتمد على نطاق صفوف داخل القالب، وخصوصاً خانة الإجمالي — لأن الصف سيتكرر ديناميكياً لاحقاً عند التعبئة الفعلية، وستُفسَد أي صيغة من هذا النوع. كل قيمة تُملأ جاهزة من التطبيق مباشرة.
+            3. لإنشاء جدول مستقل لملخّص المنتجات المتكررة، ضع <strong>{"{{ملخص}}"}</strong> في خلية مستقلة مخصصة للعلامة داخل صف بيانات الملخّص (ستُمسح هذه الخلية عند التعبئة)، على أن يكون الصف منفصلاً عن صف {"{{بند}}"}. ضع كلمات الأعمدة في خلايا الصف نفسه وصمّم بنفسك عناوين الجدول وألوانه وخطوطه وحدوده وعرض أعمدته. الكلمات هي: {"{{ملخص_المنتج}}"} و{"{{ملخص_الوزن_الكلي}}"} و{"{{ملخص_سعر_التعادل}}"} و{"{{ملخص_المبلغ_الكلي}}"}. ينسخ التطبيق تنسيق صف البيانات تلقائياً لكل منتج متكرر، ولا ينشئ أي تنسيق أو عنوان افتراضي.
+            <br />
+            4. ضع <strong>{"{{ملخص_بداية}}"}</strong> في صف بداية منطقة جدول الملخّص، و<strong>{"{{ملخص_نهاية}}"}</strong> في صف نهايتها (كل علامة في خلية مستقلة وبمطابقة تامة). هاتان العلامتان اختياريتان، لكن استخدامهما يجعل التطبيق يحذف منطقة الملخّص كاملة عند الطباعة العادية أو عندما لا توجد منتجات متكررة. بدونهما سيُحذف صف البيانات فقط، وقد تبقى عناوين الجدول الثابتة ظاهرة.
+            <br />
+            5. <strong>يُمنع استخدام أي صيغة Excel</strong> (مثل <code>SUM</code> أو غيرها) تعتمد على نطاق صفوف داخل القالب، وخصوصاً خانات الإجمالي — لأن الصفوف تتكرر ديناميكياً عند التعبئة. كل قيمة تُملأ جاهزة من التطبيق مباشرة.
           </div>
         </div>
       </div>
@@ -501,6 +510,44 @@ export function SettingsPage() {
               )}
             </>
           )}
+
+          <div style={s.scanSectionTitle}>صف جدول ملخّص المنتجات المتكررة</div>
+          {scanResult.summaryMarkerCount === 0 && (
+            <div style={{ ...s.scanRow, color: "#B91C1C" }}>
+              <XCircle size={15} />
+              لم يتم العثور على خلية {"{{ملخص}}"} — لن تظهر بيانات الملخّص حتى تضيف صفه إلى القالب.
+            </div>
+          )}
+          {scanResult.summaryMarkerCount > 1 && (
+            <div style={{ ...s.scanRow, color: "#B45309" }}>
+              <AlertTriangle size={15} />
+              تم العثور على {scanResult.summaryMarkerCount} خلايا {"{{ملخص}}"} — سيُستخدم الصف الأعلى ترتيباً فقط.
+            </div>
+          )}
+          {scanResult.summaryMarkerCount === 1 && (
+            <>
+              <div style={{ ...s.scanRow, color: "#166534" }}>
+                <CheckCircle size={15} />
+                تم العثور على صف الملخّص المستقل.
+              </div>
+              {scanResult.summaryRowKeywords.map((k) => (
+                <div key={k.keyword} style={{ ...s.scanRow, color: k.found ? "#166534" : "#94A3B8" }}>
+                  {k.found ? <CheckCircle size={15} /> : <XCircle size={15} />}
+                  {k.keyword} — {k.found ? "موجودة" : "غير موجودة"}
+                </div>
+              ))}
+            </>
+          )}
+
+          <div style={s.scanSectionTitle}>علامتا نطاق جدول الملخّص (اختياريتان)</div>
+          <div style={{ ...s.scanRow, color: scanResult.summarySectionStartMarkerCount === 1 ? "#166534" : "#94A3B8" }}>
+            {scanResult.summarySectionStartMarkerCount === 1 ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {"{{ملخص_بداية}}"} — {scanResult.summarySectionStartMarkerCount === 1 ? "موجودة" : "غير موجودة أو مكررة"}
+          </div>
+          <div style={{ ...s.scanRow, color: scanResult.summarySectionEndMarkerCount === 1 ? "#166534" : "#94A3B8" }}>
+            {scanResult.summarySectionEndMarkerCount === 1 ? <CheckCircle size={15} /> : <XCircle size={15} />}
+            {"{{ملخص_نهاية}}"} — {scanResult.summarySectionEndMarkerCount === 1 ? "موجودة" : "غير موجودة أو مكررة"}
+          </div>
 
           <div style={s.scanSectionTitle}>الحقول أحادية القيمة</div>
           {scanResult.singleValueKeywords.map((k) => (
