@@ -1,6 +1,18 @@
 import type { Box, InvoiceFullDetails } from "../services/db";
 import type { Draft, DraftRow, DraftRowBox } from "./invoice";
 
+// ── معرّفات مسودات الفواتير المحمَّلة من القاعدة ──
+// لا يجوز أن يكون المعرّف دالة في invoice.id وحده: زر "حفظ" يُعيد تعيين التبويب
+// إلى مسودة فارغة بنفس معرّفه، فإعادة فتح الفاتورة نفسها لاحقاً (من الأرشيف أو
+// الاسترجاع) كانت تُنتج تبويبين بنفس المفتاح (`inv9` مثلاً). العدّاد يضمن
+// التفرّد طوال الجلسة؛ والبادئة "inv" تمنع التصادم مع معرّفات newId
+// (`d{timestamp}-...`) في App.tsx و HomePage.tsx.
+let draftIdSeq = 0;
+function uniqueDraftId(invoiceId: number): string {
+  draftIdSeq += 1;
+  return `inv${invoiceId}-${draftIdSeq}`;
+}
+
 // ── دالة مساعدة لبناء مسودة فاتورة جديدة بناءً على الصناديق المتاحة ──
 // تُستخدم من App.tsx و HomePage.tsx
 export function makeDraft(id: string, realBoxes: Box[]): Draft {
@@ -49,7 +61,7 @@ export function draftFromInvoice(
   }));
 
   return {
-    id: `inv${invoice.id}`,
+    id: uniqueDraftId(invoice.id),
     merchantName: invoice.merchant_name ?? "",
     merchantId: invoice.merchant_id ?? undefined,
     productInput: "",
