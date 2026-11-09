@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useCallback, useState, memo } from "react";
-import { Plus, Package, Tag, Scale, Banknote } from "lucide-react";
+import { Plus, Tag, Scale, Banknote } from "lucide-react";
 import type { DraftBox, DraftRow } from "./invoice";
 import { StaleReferenceError, type Product } from "../services/db";
 import {
@@ -62,7 +62,7 @@ export function emptyEntry(
 // ─── بطاقة صندوق واحد ────────────────────────────────────────────────────────
 // memo: عند الكتابة في أي حقل آخر (منتج، وزن، سعر) أو تغيير عدد صندوق آخر لا
 // تتغير بيانات هذه البطاقة (الكائن box يحتفظ بهويته في updateBox)، فلا يُعاد
-// رسمها. كان كل حرف يُكتب يُعيد رسم كل البطاقات بأيقوناتها.
+// رسمها.
 const BoxCard = memo(function BoxCard({
   box,
   onCountChange,
@@ -74,61 +74,34 @@ const BoxCard = memo(function BoxCard({
   return (
     <div
       className="le-box-card"
-      title={`${box.name} — فارغ: ${box.emptyWeight} كغ`}
+      title={box.name}
       style={{
         minWidth: 0,
-        padding: "10px",
+        padding: "10px 8px",
         borderRadius: "10px",
         border: active ? "1.5px solid #0F766E" : "1.5px solid #E2E8F0",
         backgroundColor: active ? "#F0FDFA" : "#FFFFFF",
         display: "flex",
         flexDirection: "column",
-        gap: "8px",
+        gap: "10px",
       }}
     >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "7px" }}>
-          <Package
-            size={20}
-            strokeWidth={2}
-            aria-hidden="true"
-            style={{ flexShrink: 0, marginTop: "2px", color: active ? "#0F766E" : "#94A3B8" }}
-          />
-          <div
-            style={{
-              minWidth: 0,
-              color: active ? "#134E4A" : "#1E293B",
-              fontSize: "18px",
-              fontWeight: 700,
-              lineHeight: "24px",
-              overflow: "hidden",
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              wordBreak: "break-word",
-            }}
-          >
-            {box.name}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "6px",
-            fontSize: "12px",
-            lineHeight: "16px",
-            color: "#64748B",
-            fontWeight: 500,
-          }}
-        >
-          <span>فارغ: {box.emptyWeight} كغ</span>
-          {active && (
-            <span style={{ color: "#0F766E", fontWeight: 700 }}>
-              {round2(box.countInput * box.emptyWeight).toFixed(2)}
-            </span>
-          )}
-        </div>
+      <div
+        style={{
+          minWidth: 0,
+          minHeight: "48px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: active ? "#134E4A" : "#1E293B",
+          fontSize: "20px",
+          fontWeight: 800,
+          lineHeight: "26px",
+          textAlign: "center",
+          overflowWrap: "anywhere",
+        }}
+      >
+        {box.name}
       </div>
 
       {/* العدد: كتابة مباشرة، و↑/↓ للزيادة والإنقاص بالكيبورد */}
