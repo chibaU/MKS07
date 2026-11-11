@@ -24,6 +24,44 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      # 1) فك ترميز الشهادة من الـ secret واستيرادها إلى مخزن الشهادات
+      - name: Import code signing certificate
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:CERTIFICATE_BASE64) { throw "Secret CERTIFICATE_BASE64 is missing" }
+          if (-not $env:CERTIFICATE_PASSWORD) { throw "Secret CERTIFICATE_PASSWORD is missing" }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "signing-cert.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+
+          $securePwd = ConvertTo-SecureString $env:CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePwd
+          Remove-Item $pfxPath -Force
+
+          Write-Host "Imported certificate: $($cert.Subject)"
+          Write-Host "Thumbprint: $($cert.Thumbprint)"
+          "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+      # 2) إضافة إعدادات التوقيع إلى tauri.conf.json (داخل الـ runner فقط، لا يُرفع شيء لـ GitHub)
+      - name: Configure Tauri Windows signing
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $conf = Get-Content $path -Raw | ConvertFrom-Json
+
+          $win = $conf.bundle.windows
+          $win | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $env:CERT_THUMBPRINT -Force
+          $win | Add-Member -NotePropertyName digestAlgorithm -NotePropertyValue "sha256" -Force
+          $win | Add-Member -NotePropertyName timestampUrl -NotePropertyValue "http://timestamp.digicert.com" -Force
+
+          $json = $conf | ConvertTo-Json -Depth 20
+          [IO.File]::WriteAllText((Resolve-Path $path), $json, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Signing config added to tauri.conf.json"
+
+      # 3) البناء (Tauri يوقّع MKS.exe وملف التثبيت تلقائياً)
       - name: Build Tauri app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -34,3 +72,31 @@ jobs:
           releaseBody: "نسخة تثبيت ويندوز جاهزة"
           releaseDraft: true
           prerelease: false
+
+      # 4) تحقق أن كل ملفات exe الناتجة موقّعة فعلاً بشهادتك، وإلا يفشل الـ workflow
+      - name: Verify signatures
+        shell: pwsh
+        run: |
+          $files = @()
+          $files += Get-ChildItem "src-tauri/target/release/bundle" -Recurse -Filter *.exe
+          $files += Get-Item "src-tauri/target/release/MKS.exe" -ErrorAction SilentlyContinue
+
+          if ($files.Count -eq 0) { throw "No exe files found to verify" }
+
+          $failed = $false
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            $ok = ($sig.Status -ne "NotSigned") -and ($sig.SignerCertificate.Thumbprint -eq $env:CERT_THUMBPRINT)
+            Write-Host "$($f.Name): status=$($sig.Status) signedByMyCert=$ok"
+            if (-not $ok) { $failed = $true }
+          }
+          if ($failed) { throw "One or more exe files are not signed with the expected certificate" }
+
+      # 5) حذف الشهادة من المخزن
+      - name: Remove certificate
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:CERT_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$($env:CERT_THUMBPRINT)" -ErrorAction SilentlyContinue
+          }
