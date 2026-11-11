@@ -183,7 +183,7 @@ pub async fn batch_invoice_pdf_convert(
 }
 
 /// يدمج ملفات PDF الفواتير (`count` ملفاً بترتيب الدفعة) في ملف واحد، يتحقق منه،
-/// ثم يحفظه في مجلد التنزيلات (وإلا سطح المكتب — نمط `phone_sync_export_ca`)
+/// ثم يحفظه في مجلد التنزيلات أو سطح المكتب
 /// باسم `فواتير_{التاجر}_{من}_{إلى}.pdf` دون استبدال أي ملف موجود، ويكشفه في
 /// مستكشف ويندوز. لا يحذف مجلد الدفعة (`cleanup` مسؤولية المستدعي دائماً).
 #[tauri::command]
@@ -291,8 +291,7 @@ pub async fn batch_invoice_pdf_reveal(app: AppHandle, path: String) -> Result<()
     .await
 }
 
-// نفس نمط `reveal_in_explorer` في phone_sync/mod.rs (دالة خاصة هناك، ولا يجوز
-// تعديل ملفات phone_sync) — مكرَّرة هنا عمداً كما هي.
+// يكشف الملف في مستكشف ويندوز.
 #[cfg(windows)]
 fn reveal_in_explorer(path: &std::path::Path) {
     use std::os::windows::process::CommandExt;

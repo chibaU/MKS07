@@ -14,9 +14,6 @@ mod batch_invoice_pdf;
 mod print_dialog;
 // ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
 mod activation;
-// ميزة مزامنة الهاتف (راجع AI_CONTEXT.md القسم 10 وتعليق رأس phone_sync/mod.rs).
-// معزولة تماماً: لا تعمل شيئاً عند الإقلاع، ولا تعتمد عليها أي وحدة أخرى.
-mod phone_sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -138,7 +135,6 @@ pub fn run() {
     }
 
     builder
-        .manage(phone_sync::PhoneSyncState::new())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:mks.db", migrations)
@@ -173,23 +169,7 @@ pub fn run() {
             print_dialog::print_prepare,
             print_dialog::print_execute,
             print_dialog::print_job_cleanup,
-            activation::verify_activation_code,
-            // ميزة مزامنة الهاتف — كل أوامرها بالبادئة phone_sync_ (معزولة عن ما سبق).
-            phone_sync::phone_sync_status,
-            phone_sync::phone_sync_start,
-            phone_sync::phone_sync_stop,
-            phone_sync::phone_sync_rotate_key,
-            phone_sync::phone_sync_export_ca,
-            phone_sync::phone_sync_set_provider_ready,
-            phone_sync::phone_sync_publish_catalog,
-            phone_sync::phone_sync_provide_catalog,
-            phone_sync::phone_sync_list_inbox,
-            phone_sync::phone_sync_recent_decisions,
-            phone_sync::phone_sync_begin_save,
-            phone_sync::phone_sync_record_saved,
-            phone_sync::phone_sync_abort_save,
-            phone_sync::phone_sync_mark_confirmed,
-            phone_sync::phone_sync_reject
+            activation::verify_activation_code
         ])
         .setup(|app| {
             // 🚀 فقط نتأكد من أن مجلد التطبيق موجود ليتم إنشاء قاعدة البيانات بداخله بنجاح
