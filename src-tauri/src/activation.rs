@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 // لا تضع الكود الصريح في هذا الملف.
 // مطور : لقدر غيرة الكود بالفعل
 const ACTIVATION_CODE_SHA256: &str =
-    "33dde99c6ef6c7c517900db63002c696c3d968aa160787915aa738dd7c56238f";
+    "3043e9f7b695b472b74e85ea0830c409014f799c110f12a4a783bc730c2cacb4";
 
 #[tauri::command]
 pub fn verify_activation_code(code: String) -> bool {
