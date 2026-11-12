@@ -276,43 +276,26 @@ export function HomePage({
     }
   }, [activeDraft, drafts, realBoxes, patchDraft, setDrafts, setActiveId]);
 
-  // ── الوظيفة الجديدة لزر "حفظ" (القسم 3 نقطة 7): إغلاق الفاتورة النشطة ثم
-  // إعادة تعيين نفس التبويب لمسودة عذراء جديدة (لا حفظ فعلي، يحدث تلقائياً
-  // من أول بند) ──
-  const onCloseInvoice = useCallback(async (andPrint = false, includeRepeatedProductSummary = false) => {
-    if (!activeDraft || activeDraft.invoiceId === null || activeDraft.isClosing) return;
-
-    const targetId = activeDraft.id;
-    const invoiceId = activeDraft.invoiceId;
-    patchDraft(targetId, { isClosing: true });
-
-    try {
-      await invoiceService.setOpenState(invoiceId, 0);
-
-      if (andPrint) {
-        // مهمة 2/2 من ميزة الطباعة: توليد PDF فعلي وفتحه، بدل window.print()
-        // القديم. لا ننتظر (await) هذا قبل تصفير التبويب لمسودة جديدة أدناه —
-        // الفاتورة نفسها أُغلقت وحُفظت بالفعل (setOpenState أعلاه)، فطباعتها
-        // عملية منفصلة تماماً لا يجب أن تُعطّل تجربة المستخدم بانتظارها.
-        printInvoice(invoiceId, includeRepeatedProductSummary).catch((error) => {
-          console.error("خطأ أثناء توليد PDF الفاتورة:", error);
-          alert(
-            error instanceof Error
-              ? error.message
-              : "تعذّر توليد ملف الطباعة لهذه الفاتورة.",
-          );
-        });
-      }
-
-      setDrafts((prev) =>
-        prev.map((d) => (d.id === targetId ? makeDraft(targetId, realBoxes) : d)),
-      );
-    } catch (error) {
-      console.error("خطأ أثناء إغلاق الفاتورة:", error);
-      patchDraft(targetId, { isClosing: false });
-      alert("تعذر إغلاق الفاتورة، يرجى مراجعة سجل الأخطاء.");
+  // الطباعة عملية مستقلة: لا تغلق الفاتورة ولا تغيّر حالة التبويبة.
+  const onPrintInvoice = useCallback((includeRepeatedProductSummary = false) => {
+    if (
+      !activeDraft ||
+      activeDraft.invoiceId === null ||
+      activeDraft.isSavingLine ||
+      activeDraft.isClosing
+    ) {
+      return;
     }
-  }, [activeDraft, realBoxes, patchDraft, setDrafts]);
+
+    printInvoice(activeDraft.invoiceId, includeRepeatedProductSummary).catch((error) => {
+      console.error("خطأ أثناء توليد PDF الفاتورة:", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "تعذّر توليد ملف الطباعة لهذه الفاتورة.",
+      );
+    });
+  }, [activeDraft]);
 
   if (!activeDraft) {
     return (
@@ -389,7 +372,7 @@ export function HomePage({
         onChange={handleChange}
         handleInsertRow={handleInsertRow}
         onResolveInvoiceNumber={onResolveInvoiceNumber}
-        onCloseInvoice={onCloseInvoice}
+        onPrintInvoice={onPrintInvoice}
         merchants={merchants}
         products={products}
         onRefreshBoxes={onRefreshBoxes}

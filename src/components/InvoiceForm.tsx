@@ -1,5 +1,5 @@
 import { useMemo, useCallback, useState, useEffect, useRef, memo } from "react";
-import { Trash2, Copy, Save, Printer, X, Hash, Store } from "lucide-react";
+import { Trash2, Copy, Printer, X, Hash, Store } from "lucide-react";
 import type { Draft, DraftBox, DraftRow } from "./invoice";
 import {
   type Merchant,
@@ -167,7 +167,7 @@ interface InvoiceFormProps {
   onChange: (patch: Partial<Draft>) => void;
   handleInsertRow: (row: DraftRow) => Promise<void>;
   onResolveInvoiceNumber: (text: string) => void;
-  onCloseInvoice: (andPrint?: boolean, includeRepeatedProductSummary?: boolean) => void;
+  onPrintInvoice: (includeRepeatedProductSummary?: boolean) => void;
   merchants: Merchant[];
   products: Product[];
   // يحدّث قائمة الصناديق النشطة العامة (App) ويُرجع القائمة المحدَّثة، أو null عند الفشل.
@@ -179,7 +179,7 @@ export function InvoiceForm({
   onChange,
   handleInsertRow,
   onResolveInvoiceNumber,
-  onCloseInvoice,
+  onPrintInvoice,
   merchants,
   products,
   onRefreshBoxes,
@@ -478,10 +478,8 @@ export function InvoiceForm({
     [draft.rows, selectedIds],
   );
 
-  // زر "حفظ"/"حفظ وطباعة" الآن يُغلِق الفاتورة (القسم 3 نقطة 7) بدل حفظها
-  // فعلياً (يحدث تلقائياً من أول بند) — يُفعَّل فقط إن كانت هناك فاتورة محفوظة
-  // فعلياً لإغلاقها، وفق القاعدة الثابتة الحاكمة لكل تفعيل/تعطيل في هذا الجزء.
-  const canClose = draft.invoiceId !== null && !draft.isClosing;
+  // الطباعة متاحة فقط لفاتورة محفوظة، وخارج عمليات الحفظ أو الإغلاق الجارية.
+  const canPrint = draft.invoiceId !== null && !draft.isSavingLine && !draft.isClosing;
 
   return (
     <div style={{ padding: "28px 32px" }}>
@@ -843,21 +841,20 @@ export function InvoiceForm({
         )}
       </div>
 
-      {/* أزرار "حفظ"/"حفظ وطباعة" — أصبحت تُغلِق الفاتورة (is_open=false) بدل
-          حفظها فعلياً (القسم 3 نقطة 7)؛ تُعطَّل حسب draft.isClosing فقط */}
+      {/* الطباعة مستقلة عن إغلاق الفاتورة أو التبويبة. */}
       <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
         <button
-          onClick={() => onCloseInvoice(true)}
-          disabled={!canClose}
+          onClick={() => onPrintInvoice()}
+          disabled={!canPrint}
           style={{
             backgroundColor: "white",
-            color: !canClose ? "#94A3B8" : "#1E293B",
-            border: `2px solid ${!canClose ? "#CBD5E1" : "#64748B"}`,
+            color: !canPrint ? "#94A3B8" : "#1E293B",
+            border: `2px solid ${!canPrint ? "#CBD5E1" : "#64748B"}`,
             borderRadius: "8px",
             padding: "14px 32px",
             fontSize: "16px",
             fontWeight: 700,
-            cursor: !canClose ? "not-allowed" : "pointer",
+            cursor: !canPrint ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "9px",
@@ -865,20 +862,20 @@ export function InvoiceForm({
           }}
         >
           <Printer size={18} />
-          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة"}
+          طباعة
         </button>
         <button
-          onClick={() => onCloseInvoice(true, true)}
-          disabled={!canClose}
+          onClick={() => onPrintInvoice(true)}
+          disabled={!canPrint}
           style={{
             backgroundColor: "#ECFDF5",
-            color: !canClose ? "#94A3B8" : "#047857",
-            border: `2px solid ${!canClose ? "#CBD5E1" : "#6EE7B7"}`,
+            color: !canPrint ? "#94A3B8" : "#047857",
+            border: `2px solid ${!canPrint ? "#CBD5E1" : "#6EE7B7"}`,
             borderRadius: "8px",
             padding: "14px 24px",
             fontSize: "16px",
             fontWeight: 700,
-            cursor: !canClose ? "not-allowed" : "pointer",
+            cursor: !canPrint ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "9px",
@@ -886,28 +883,7 @@ export function InvoiceForm({
           }}
         >
           <Printer size={18} />
-          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ وطباعة مع الملخّص"}
-        </button>
-        <button
-          onClick={() => onCloseInvoice(false)}
-          disabled={!canClose}
-          style={{
-            backgroundColor: !canClose ? "#93C5FD" : "#2563EB",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            padding: "14px 32px",
-            fontSize: "16px",
-            fontWeight: 700,
-            cursor: !canClose ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "9px",
-            fontFamily: "'Cairo', sans-serif",
-          }}
-        >
-          <Save size={18} />
-          {draft.isClosing ? "جارٍ الإغلاق..." : "حفظ"}
+          طباعة مع الملخّص
         </button>
       </div>
     </div>
