@@ -71,6 +71,11 @@ const BoxCard = memo(function BoxCard({
   onCountChange: (boxId: number, val: string) => void;
 }) {
   const active = box.countInput > 0;
+  // الوزن الكلي لهذا النوع = وزن الصندوق الفارغ × العدد المُدخل (بنفس round2 المستخدمة في بقية الشاشة)
+  const totalWeight = round2(box.emptyWeight * box.countInput);
+  // يُخفى عند عدد فارغ/0، وكذلك لو كان وزن الصندوق الفارغ 0 (لا فائدة من عرض "0 كغ")
+  const showTotal = active && totalWeight > 0;
+
   return (
     <div
       className="le-box-card"
@@ -102,6 +107,32 @@ const BoxCard = memo(function BoxCard({
         }}
       >
         {box.name}
+      </div>
+
+      {/* فتحة ثابتة الارتفاع بين الاسم وخانة العدد: تبقى محجوزة حتى حين يكون النص مخفياً،
+          فلا تقفز البطاقات ولا يتغيّر ارتفاع الصفوف أثناء الكتابة.
+          الهامش السالب يعوّض جزءاً من مسافتَي gap حول الفتحة كي لا يتضخّم ارتفاع البطاقة. */}
+      <div
+        aria-hidden={!showTotal}
+        title={showTotal ? `الإجمالي: ${totalWeight} كغ` : undefined}
+        style={{
+          height: "18px",
+          margin: "-3px 0",
+          fontSize: "12px", // يعادل text-xs
+          lineHeight: "18px",
+          fontWeight: 600,
+          color: "#0F766E",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {showTotal && (
+          <>
+            الإجمالي: <bdi>{totalWeight}</bdi> كغ
+          </>
+        )}
       </div>
 
       {/* العدد: كتابة مباشرة، و↑/↓ للزيادة والإنقاص بالكيبورد */}
