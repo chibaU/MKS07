@@ -6,14 +6,17 @@
 // `print.ts` عبر `requestPrintOptions` (services/printOptions.ts). منطق التحقق في
 // ذلك الملف (يُختبَر بـnode)؛ هنا عرض فقط، بأنماط inline وخط Cairo كبقية المشروع.
 //
-// الضغط على "طباعة" لا يُغلق النافذة: تبقى مفتوحة بحالة "جارٍ الإرسال" حتى تنتهي
-// الطباعة؛ فإن فشلت (طابعة غير متصلة مثلاً) يظهر السبب داخلها ويمكن تغيير الطابعة
-// وإعادة المحاولة دون إعادة تجهيز الفاتورة. لا إغلاق بالنقر خارجها (تفادياً للإلغاء
-// بالخطأ)؛ Escape للإلغاء، وEnter داخل خانة رقمية للطباعة.
+// الضغط على "طباعة" لا يُغلق النافذة إلا عند طباعة "الكل". طباعة صفحة أو مجال جزئي
+// تُبقيها مفتوحة بعد النجاح (مع رسالة تأكيد) ليطبع المستخدم صفحة أخرى دون العودة
+// للأرشيف. تُغلق النافذة في حالتين فقط: (1) طباعة "الكل" (الكل، أو مجال يغطي كل
+// الصفحات، أو فاتورة من صفحة واحدة)، (2) خروج متعمَّد: زر "إغلاق" أو Escape.
+// أثناء الإرسال تبقى بحالة "جارٍ الإرسال"؛ فإن فشلت الطباعة (طابعة غير متصلة مثلاً)
+// يظهر السبب داخلها ويمكن تغيير الطابعة وإعادة المحاولة دون إعادة تجهيز الفاتورة.
+// لا إغلاق بالنقر خارجها (تفادياً للإلغاء بالخطأ)؛ Enter داخل خانة رقمية للطباعة.
 // ============================================================================
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Loader2, Printer, TriangleAlert } from "lucide-react";
+import { CheckCircle, Loader2, Printer, TriangleAlert } from "lucide-react";
 import {
   MAX_COPIES,
   getPrintUiState,
@@ -83,6 +86,7 @@ const s = {
   hintBad: { color: "#B91C1C", fontSize: "13px", fontWeight: 600, marginTop: "4px" },
   warn: { backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", borderRadius: "10px", padding: "10px 14px", fontSize: "13px", lineHeight: 1.8 },
   error: { backgroundColor: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B", borderRadius: "10px", padding: "10px 14px", fontSize: "13px", lineHeight: 1.8, display: "flex", gap: "8px", alignItems: "flex-start", wordBreak: "break-word" as const },
+  ok: { backgroundColor: "#F0FDF4", border: "1px solid #BBF7D0", color: "#166534", borderRadius: "10px", padding: "10px 14px", fontSize: "13px", lineHeight: 1.8, display: "flex", gap: "8px", alignItems: "flex-start" },
   footer: { display: "flex", gap: "10px", justifyContent: "flex-start", padding: "14px 22px", borderTop: "1px solid #E2E8F0", backgroundColor: "#F8FAFC", borderRadius: "0 0 14px 14px" },
   btn: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px", borderRadius: "8px", padding: "10px 22px", fontSize: "15px", fontWeight: 700, fontFamily: font, border: "1px solid transparent" },
 };
@@ -142,33 +146,57 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [printedAny, setPrintedAny] = useState(false); // طُبعت صفحة/مجال واحد على الأقل في هذه الجلسة
+  const [lastPrinted, setLastPrinted] = useState<{ key: string; text: string } | null>(null);
 
   const multiPage = info.pageCount > 1;
   const copiesResult = resolveCopies(copies);
   const selection = resolveSelection({ mode, single, from, to }, info.pageCount);
   const canPrint = !busy && copiesResult.ok && selection.ok;
+  // مفتاح يلخّص اختيارات المستخدم: رسالة "تم الإرسال" تظهر ما دام الاختيار لم يتغيّر
+  // (تختفي تلقائياً بمجرد تعديل أي حقل، دون الحاجة إلى effect).
+  const selectionKey = `${printer}|${copies}|${mode}|${single}|${from}|${to}`;
+  const printedNotice = !busy && lastPrinted?.key === selectionKey ? lastPrinted.text : null;
 
   const handlePrint = async () => {
     if (busy || !copiesResult.ok || !selection.ok) return;
+    const range = selection.value;
     setBusy(true);
     setError(null);
     try {
-      await submit({ printerName: printer, copies: copiesResult.value, range: selection.value });
+      await submit({ printerName: printer, copies: copiesResult.value, range });
     } catch (e) {
       setError(errorText(e));
+      setLastPrinted(null);
       setBusy(false);
       return;
     }
-    finish(true);
+
+    // طباعة "الكل" = انتهت المهمة، تُغلق النافذة.
+    if (range.mode === "all") {
+      finish(true);
+      return;
+    }
+
+    // صفحة أو مجال جزئي: تبقى النافذة مفتوحة لطباعة صفحات أخرى.
+    setPrintedAny(true);
+    setLastPrinted({
+      key: selectionKey,
+      text:
+        range.from === range.to
+          ? `تم إرسال الصفحة ${range.from} إلى الطابعة ✓`
+          : `تم إرسال الصفحات ${range.from}–${range.to} إلى الطابعة ✓`,
+    });
+    setBusy(false);
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) finish(false);
+      if (e.key === "Escape" && !busy) finish(printedAny);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, finish]);
+  }, [busy, finish, printedAny]);
 
   const onEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -269,11 +297,21 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
                     تُطبَع الصفحات المحددة كصور عالية الدقة (300 نقطة/بوصة) وتُلائَم منطقة الطباعة، أما «الكل» فتُطبَع بجودة النص الكاملة.
                   </div>
                 )}
+                <div style={{ ...s.muted, marginTop: "6px" }}>
+                  بعد طباعة صفحة أو مجال تبقى هذه النافذة مفتوحة لتطبع صفحات أخرى، وتُغلق عند طباعة «الكل» أو عند الضغط على «إغلاق».
+                </div>
               </>
             ) : (
               <div style={s.muted}>الفاتورة من صفحة واحدة — ستُطبَع كاملة.</div>
             )}
           </div>
+
+          {printedNotice && (
+            <div style={s.ok} role="status">
+              <CheckCircle size={16} style={{ flexShrink: 0, marginTop: "4px" }} />
+              <span>{printedNotice}</span>
+            </div>
+          )}
 
           {error && (
             <div style={s.error} role="alert">
@@ -295,11 +333,11 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
           </button>
           <button
             type="button"
-            onClick={() => finish(false)}
+            onClick={() => finish(printedAny)}
             disabled={busy}
             style={{ ...s.btn, backgroundColor: "white", color: "#475569", borderColor: "#CBD5E1", opacity: busy ? 0.55 : 1, cursor: busy ? "not-allowed" : "pointer" }}
           >
-            إلغاء
+            {printedAny ? "إغلاق" : "إلغاء"}
           </button>
         </div>
       </div>
