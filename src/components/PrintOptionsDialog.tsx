@@ -1,6 +1,6 @@
 // ============================================================================
 // نافذة الطباعة الخاصة بالتطبيق (AI_CONTEXT.md القسم 6.7) — تحلّ محل نافذة
-// ويندوز القياسية: الطابعة، عدد النسخ، والصفحات (الكل / صفحة واحدة / مجال من–إلى).
+// ويندوز القياسية: عدد النسخ والصفحات (الطابعة تُؤخذ من الإعدادات).
 //
 // تُركَّب مرة واحدة في App.tsx (`<PrintOptionsHost />`) وتبقى بلا أثر حتى يطلبها
 // `print.ts` عبر `requestPrintOptions` (services/printOptions.ts). منطق التحقق في
@@ -11,7 +11,7 @@
 // للأرشيف. تُغلق النافذة في حالتين فقط: (1) طباعة "الكل" (الكل، أو مجال يغطي كل
 // الصفحات، أو فاتورة من صفحة واحدة)، (2) خروج متعمَّد: زر "إغلاق" أو Escape.
 // أثناء الإرسال تبقى بحالة "جارٍ الإرسال"؛ فإن فشلت الطباعة (طابعة غير متصلة مثلاً)
-// يظهر السبب داخلها ويمكن تغيير الطابعة وإعادة المحاولة دون إعادة تجهيز الفاتورة.
+// يظهر السبب داخلها مع إمكانية تعديل الخيارات وإعادة المحاولة دون إعادة تجهيز الفاتورة.
 // لا إغلاق بالنقر خارجها (تفادياً للإلغاء بالخطأ)؛ Enter داخل خانة رقمية للطباعة.
 // ============================================================================
 
@@ -59,16 +59,18 @@ const s = {
   subtitle: { color: "#64748B", fontSize: "13px", marginTop: "2px" },
   body: { padding: "18px 22px", display: "flex", flexDirection: "column" as const, gap: "18px", overflowY: "auto" as const },
   label: { display: "block", color: "#334155", fontSize: "14px", fontWeight: 700, marginBottom: "6px" },
-  select: {
-    width: "100%",
+  printerBox: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
     padding: "10px 12px",
     borderRadius: "8px",
-    border: "1px solid #CBD5E1",
-    fontSize: "14px",
-    fontFamily: font,
+    border: "1px solid #E2E8F0",
+    backgroundColor: "#F8FAFC",
     color: "#1E293B",
-    backgroundColor: "white",
-    boxSizing: "border-box" as const,
+    fontSize: "14px",
+    fontWeight: 600,
+    wordBreak: "break-word" as const,
   },
   numInput: {
     width: "74px",
@@ -138,7 +140,10 @@ function PreparingToast() {
 function PrintOptionsDialog({ request }: { request: OptionsState }) {
   const { info, submit, finish } = request;
 
-  const [printer, setPrinter] = useState(info.printers.includes(info.savedPrinter) ? info.savedPrinter : "");
+  const savedPrinter = info.savedPrinter.trim();
+  const savedPrinterMissing =
+    savedPrinter !== "" && info.printers.length > 0 && !info.printers.includes(savedPrinter);
+  const printer = savedPrinterMissing ? "" : savedPrinter;
   const [copies, setCopies] = useState("1");
   const [mode, setMode] = useState<SelectionMode>("all");
   const [single, setSingle] = useState("");
@@ -155,7 +160,7 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
   const canPrint = !busy && copiesResult.ok && selection.ok;
   // مفتاح يلخّص اختيارات المستخدم: رسالة "تم الإرسال" تظهر ما دام الاختيار لم يتغيّر
   // (تختفي تلقائياً بمجرد تعديل أي حقل، دون الحاجة إلى effect).
-  const selectionKey = `${printer}|${copies}|${mode}|${single}|${from}|${to}`;
+  const selectionKey = `${copies}|${mode}|${single}|${from}|${to}`;
   const printedNotice = !busy && lastPrinted?.key === selectionKey ? lastPrinted.text : null;
 
   const handlePrint = async () => {
@@ -246,15 +251,18 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
 
         <div style={s.body}>
           <div>
-            <label style={s.label} htmlFor="mks-print-printer">الطابعة</label>
-            <select id="mks-print-printer" style={s.select} value={printer} disabled={busy} autoFocus onChange={(e) => setPrinter(e.target.value)}>
-              <option value="">طابعة النظام الافتراضية</option>
-              {info.printers.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-            {info.printers.length === 0 && (
-              <div style={{ ...s.warn, marginTop: "8px" }}>لم يُعثر على طابعات مثبَّتة — سيُستخدَم إعداد طابعة النظام الافتراضية.</div>
+            <span style={s.label}>الطابعة</span>
+            <div style={s.printerBox}>
+              <Printer size={16} color="#2563EB" />
+              <span>{printer !== "" ? printer : "طابعة النظام الافتراضية"}</span>
+            </div>
+            <div style={{ ...s.muted, marginTop: "4px" }}>
+              لتغيير الطابعة: الإعدادات ← طابعة الفواتير.
+            </div>
+            {savedPrinterMissing && (
+              <div style={{ ...s.warn, marginTop: "8px" }}>
+                الطابعة المحفوظة في الإعدادات («{savedPrinter}») غير موجودة على هذا الجهاز — ستُستخدَم طابعة النظام الافتراضية.
+              </div>
             )}
           </div>
 
@@ -262,6 +270,7 @@ function PrintOptionsDialog({ request }: { request: OptionsState }) {
             <label style={s.label} htmlFor="mks-print-copies">عدد النسخ</label>
             <input
               id="mks-print-copies"
+              autoFocus
               inputMode="numeric"
               autoComplete="off"
               style={s.numInput}
