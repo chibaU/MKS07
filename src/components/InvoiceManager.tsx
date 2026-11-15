@@ -1,0 +1,83 @@
+import type { Box, InvoiceFullDetails } from "../services/db";
+import type { Draft, DraftRow, DraftRowBox } from "./invoice";
+
+// ── معرّفات مسودات الفواتير المحمَّلة من القاعدة ──
+// لا يجوز أن يكون المعرّف دالة في invoice.id وحده: زر "حفظ" يُعيد تعيين التبويب
+// إلى مسودة فارغة بنفس معرّفه، فإعادة فتح الفاتورة نفسها لاحقاً (من الأرشيف أو
+// الاسترجاع) كانت تُنتج تبويبين بنفس المفتاح (`inv9` مثلاً). العدّاد يضمن
+// التفرّد طوال الجلسة؛ والبادئة "inv" تمنع التصادم مع معرّفات newId
+// (`d{timestamp}-...`) في App.tsx و HomePage.tsx.
+let draftIdSeq = 0;
+function uniqueDraftId(invoiceId: number): string {
+  draftIdSeq += 1;
+  return `inv${invoiceId}-${draftIdSeq}`;
+}
+
+// ── دالة مساعدة لبناء مسودة فاتورة جديدة بناءً على الصناديق المتاحة ──
+// تُستخدم من App.tsx و HomePage.tsx
+export function makeDraft(id: string, realBoxes: Box[]): Draft {
+  return {
+    id,
+    merchantName: "",
+    productInput: "",
+    scaleWeightInput: "",
+    priceInput: "",
+    boxes: realBoxes.map((b) => ({
+      id: b.id,
+      name: b.name,
+      emptyWeight: b.weight,
+      countInput: 0,
+    })),
+    rows: [],
+    invoiceId: null,
+    invoiceNumberInput: "",
+    isNumberLocked: false,
+    isSavingLine: false,
+    isClosing: false,
+  };
+}
+
+// ── بناء مسودة كاملة من فاتورة مُحمَّلة فعلياً من القاعدة (القسم 6) ──
+// مسار موحَّد واحد ستستخدمه لاحقاً ثلاثة مصادر مختلفة (الجزء الثاني):
+// الاسترجاع عند الإقلاع (getOpenInvoices)، فتح فاتورة من الأرشيف
+// (getInvoiceFullDetails)، وتحميل فاتورة عبر حقل الرقم (getInvoiceFullDetailsByNumber).
+export function draftFromInvoice(
+  invoice: InvoiceFullDetails,
+  realBoxes: Box[]
+): Draft {
+  const rows: DraftRow[] = invoice.details.map((detail) => ({
+    id: detail.id, // معرّف حقيقي من القاعدة، لا معرّف محلي مؤقت
+    product: detail.product_name,
+    productId: null,
+    weight: detail.quantity, // الوزن الصافي المخزَّن فعلياً
+    price: detail.price,
+    boxesSnapshot: detail.boxes.map(
+      (box): DraftRowBox => ({
+        id: box.box_id,
+        boxCount: box.box_count,
+        name: box.box_name, // من JOIN القاعدة — يشمل الصناديق المخفية أيضاً
+      })
+    ),
+  }));
+
+  return {
+    id: uniqueDraftId(invoice.id),
+    merchantName: invoice.merchant_name ?? "",
+    merchantId: invoice.merchant_id ?? undefined,
+    productInput: "",
+    scaleWeightInput: "",
+    priceInput: "",
+    boxes: realBoxes.map((b) => ({
+      id: b.id,
+      name: b.name,
+      emptyWeight: b.weight,
+      countInput: 0,
+    })),
+    rows,
+    invoiceId: invoice.id,
+    invoiceNumberInput: invoice.invoice_number ?? "",
+    isNumberLocked: true,
+    isSavingLine: false,
+    isClosing: false,
+  };
+}
