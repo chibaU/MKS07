@@ -16,11 +16,10 @@ export interface Setting {
 // معرّفات الأجهزة المسموح لها بالعمل، لا أي بيانات عن الجهاز الحالي بعينه.
 const SETTINGS_KEY_DEVICE_ID = 'device_id';
 
-// ── مهمة 3/2 من ميزة طباعة الفاتورة: الطباعة الصامتة المباشرة ──
-// اسم الطابعة التي يختارها المستخدم من صفحة الإعدادات لتُستخدَم في كل طباعة
-// مباشرة لاحقة. قيمة فارغة/غائبة تعني "استخدم طابعة النظام الافتراضية" —
-// راجع تعليق `print_invoice_direct` في invoice_template.rs (Rust) للتفاصيل
-// الكاملة لما يحدث بهذا الاسم فعلياً.
+// ── طباعة الفاتورة (راجع PRINTING.md) ──
+// اسم الطابعة التي يختارها المستخدم من صفحة الإعدادات (بطاقة «طريقة الطباعة»،
+// وضع «طباعة مباشرة») ويُمرَّر كما حُفظ إلى أمر print_webview. قيمة فارغة/غائبة
+// تعني «طابعة ويندوز الافتراضية».
 export const SETTINGS_KEY_PRINTER_NAME = 'invoice_printer_name';
 
 export interface TrustedDevice {
@@ -94,12 +93,8 @@ export interface CreateInvoiceDetail {
 
 export interface InvoiceWithMerchant extends Invoice {
   merchant_name: NullableString;
-  // مضافة لطباعة الفاتورة (مهمة 2/2): {{هاتف_التاجر}} و{{عنوان_التاجر}} —
-  // كانتا مفقودتين من هذا النوع رغم وجود merchant_name، رغم أن كل الاستعلامات
-  // أدناه تُنفّذ أصلاً LEFT JOIN مع جدول merchants الذي يحتوي عليهما. أُضيفتا
-  // لقائمة الأعمدة في الاستعلامات الأربعة التي تبني هذا النوع (لا استعلام
-  // DB جديد وقت الطباعة نفسه — التمديد هنا يحدث في تعريف الاستعلام الموجود
-  // أصلاً، لا في نقطة استدعاء إضافية عند الطباعة).
+  // هاتف التاجر وعنوانه (يُجلبان بنفس LEFT JOIN مع merchants) — تحتاجهما ترويسة
+  // الفاتورة المطبوعة.
   merchant_phone: NullableString;
   merchant_address: NullableString;
 }
@@ -132,18 +127,6 @@ export interface SearchInvoicesOptions {
 export interface SearchInvoicesResult {
   items: InvoiceWithMerchant[];
   totalCount: number;
-}
-
-// صف خفيف لفاتورة تاجر داخل نطاق تاريخ (الطباعة الجماعية — AI_CONTEXT.md
-// القسم 6.5/6.7): ما يكفي للمعاينة (الرقم/التاريخ/الإجمالي) وللمنع (is_open)
-// وللترتيب، بلا بنود. التفاصيل الكاملة تُجلَب لاحقاً لكل فاتورة بالتتابع
-// عبر getInvoiceFullDetails.
-export interface MerchantInvoiceInRange {
-  id: number;
-  invoice_number: NullableString;
-  invoice_date: NullableString;
-  total_amount: number;
-  is_open: number;
 }
 
 // نتيجة إنشاء فاتورة جديدة مع أول بند فيها — detailId هو الـ id الحقيقي لصف
@@ -1101,34 +1084,6 @@ export const invoiceService = {
         WHERE invoices.merchant_id = $1
         ORDER BY invoices.invoice_date DESC, invoices.id DESC`,
         [merchantId]
-      )
-    );
-  },
-
-  // الطباعة الجماعية (قراءة فقط): كل فواتير تاجر واحد بين تاريخين **شاملين
-  // للطرفين** (YYYY-MM-DD، مقارنة نصية مباشرة كما في searchInvoices)، بلا
-  // LIMIT ولا ترقيم صفحات — الغرض تضمين الكل دون استثناء. الترتيب تصاعدي
-  // بالتاريخ ثم id، وهو ترتيب صفحات الملف النهائي. استعلام واحد تحت
-  // runExclusive واحد؛ لا كتابة ولا ترقيم كسول ولا أي تغيير لحالة is_open.
-  async getMerchantInvoicesInRange(
-    merchantId: number,
-    dateFrom: string,
-    dateTo: string
-  ): Promise<MerchantInvoiceInRange[]> {
-    return await runExclusive((raw) =>
-      raw.select<MerchantInvoiceInRange[]>(
-        `SELECT
-          invoices.id,
-          invoices.invoice_number,
-          invoices.invoice_date,
-          invoices.total_amount,
-          invoices.is_open
-        FROM invoices
-        WHERE invoices.merchant_id = $1
-          AND invoices.invoice_date >= $2
-          AND invoices.invoice_date <= $3
-        ORDER BY invoices.invoice_date ASC, invoices.id ASC`,
-        [merchantId, dateFrom, dateTo]
       )
     );
   },

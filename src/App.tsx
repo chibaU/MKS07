@@ -9,7 +9,6 @@ import { SettingsPage } from "./components/SettingsPage";
 import { boxService, merchantService, productService, invoiceService, type Box, type Merchant, type Product } from "./services/db";
 import { makeDraft, draftFromInvoice } from "./components/InvoiceManager";
 import type { Draft } from "./components/invoice";
-import { PrintOptionsHost } from "./components/PrintOptionsDialog";
 
 type Page = "home" | "merchants" | "products" | "invoices" | "boxes" | "settings";
 
@@ -228,7 +227,6 @@ export default function App() {
         {activePage === "boxes"     && <BoxesPage onDataChange={refreshBoxes} />}
         {activePage === "settings"  && <SettingsPage />}
       </main>
-      <PrintOptionsHost />
     </div>
   );
 }

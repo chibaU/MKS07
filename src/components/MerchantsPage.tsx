@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import { Pencil, Trash2, Plus, Search, X } from "lucide-react";
 import { merchantService, invoiceService, type Merchant } from "../services/db";
@@ -56,7 +57,9 @@ export function MerchantsPage({ onDataChange }: MerchantsPageProps) {
     }
   };
 
-  useEffect(() => { loadMerchants(); }, []);
+  useEffect(() => {
+    void loadMerchants();
+  }, []);
 
   const filtered = merchants.filter((m) =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||

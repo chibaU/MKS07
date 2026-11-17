@@ -2,17 +2,12 @@ use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 use std::fs;
 
-// مهمة 1/2 من ميزة طباعة الفاتورة: أول وحدة Rust command مخصصة في المشروع.
-// راجع تعليق رأس الملف نفسه (invoice_template.rs) لتفاصيل النطاق والقرارات.
-mod invoice_template;
-// الطباعة الجماعية لفواتير تاجر إلى ملف PDF واحد (AI_CONTEXT.md القسمان 6.5
-// و6.7): نواة بحتة قابلة للاختبار + أوامر Tauri رقيقة بالبادئة batch_invoice_pdf_.
-// للقراءة فقط على القاعدة، ولا تستخدم مسار الطباعة الصامتة إطلاقاً.
-mod batch_pdf_core;
-mod batch_invoice_pdf;
-// الطباعة العادية بنافذة التطبيق وطباعة صفحات محددة (AI_CONTEXT.md 6.7/8).
-mod print_dialog;
-// ميزة تفعيل الجهاز (راجع AI_CONTEXT.md القسم 9 وتعليق رأس activation.rs).
+// الطباعة الأصلية لصفحة التطبيق عبر WebView2 (أمر واحد: print_webview) —
+// راجع PRINTING.md وتعليق رأس print/mod.rs.
+mod print;
+// قائمة الطابعات المثبَّتة (تغذّي منتقي الطابعة في الإعدادات).
+mod printers;
+// ميزة تفعيل الجهاز (راجع تعليق رأس activation.rs).
 mod activation;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,7 +117,7 @@ pub fn run() {
     // حتى يعترض محاولة فتح نسخة ثانية بشكل صحيح). الـ crate نفسه غير مدعوم على
     // Android/iOS (نفس منطق #[cfg_attr(mobile, ...)] المستخدَم أصلاً في main.rs)،
     // لذا يُسجَّل هنا فقط على سطح المكتب — وهو هدف النشر الفعلي الوحيد لهذا
-    // التطبيق أصلاً (راجع AI_CONTEXT.md القسم 2).
+    // التطبيق أصلاً.
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -140,35 +135,10 @@ pub fn run() {
                 .add_migrations("sqlite:mks.db", migrations)
                 .build(),
         )
-        // مهمة 2/2 من ميزة طباعة الفاتورة: يفتح ملف xlsx المولَّد بتطبيق
-        // الجداول الافتراضي (Excel/LibreOffice Calc) من طرف الواجهة (JS) —
-        // هذا يبقى المسار الاحتياطي اليدوي فقط الآن (فشل الطباعة الصامتة).
-        // المسار الأساسي الجديد (مهمة 3/2، print_invoice_direct) لا يستخدم
-        // هذا الـ plugin إطلاقاً — يستدعي soffice مباشرة من Rust عبر
-        // std::process::Command بلا فتح أي نافذة، راجع الملاحظة المعمارية
-        // أعلى رأس invoice_template.rs.
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            invoice_template::upload_invoice_template,
-            invoice_template::generate_invoice_file,
-            // مهمة 3/2 من ميزة طباعة الفاتورة: طباعة صامتة مباشرة عبر
-            // LibreOffice من سطر الأوامر (headless) — راجع الملاحظة
-            // المعمارية أعلى رأس invoice_template.rs.
-            invoice_template::print_invoice_direct,
-            invoice_template::list_system_printers,
-            // الطباعة الجماعية إلى PDF واحد — خمس خطوات تقودها الواجهة بالتتابع
-            // (تقدم صادق + إلغاء): تجهيز، فاتورة، تحويل، دمج/حفظ، تنظيف.
-            batch_invoice_pdf::batch_invoice_pdf_prepare,
-            batch_invoice_pdf::batch_invoice_pdf_add_invoice,
-            batch_invoice_pdf::batch_invoice_pdf_convert,
-            batch_invoice_pdf::batch_invoice_pdf_finalize,
-            batch_invoice_pdf::batch_invoice_pdf_cleanup,
-            // زر "فتح مكان الملف" بعد نجاح الدفعة (يكشف PDF الناتج في المستكشف).
-            batch_invoice_pdf::batch_invoice_pdf_reveal,
-            // الطباعة العادية بنافذة التطبيق: تجهيز (xlsx ← PDF ← عدد الصفحات)، طباعة بالمجال المختار، تنظيف.
-            print_dialog::print_prepare,
-            print_dialog::print_execute,
-            print_dialog::print_job_cleanup,
+            // الطباعة: أمر واحد (نافذة النظام أو الإرسال المباشر) + قائمة الطابعات.
+            print::print_webview,
+            printers::list_system_printers,
             activation::verify_activation_code
         ])
         .setup(|app| {
