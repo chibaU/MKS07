@@ -10,7 +10,6 @@ import type { PrintMode } from "../print/types.ts";
 import {
   EMPTY_WEIGHER,
   WEIGHER_LIMITS,
-  limitAddressInput,
   type WeigherInfo,
 } from "../print/weigher.ts";
 
@@ -109,7 +108,6 @@ const s = {
     boxSizing: "border-box" as const,
     outline: "none",
   },
-  fieldHint: { color: "#94A3B8", fontSize: "12px", marginTop: "4px" },
   saveBtn: {
     backgroundColor: "#2563EB",
     color: "white",
@@ -146,7 +144,7 @@ export function SettingsPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // --- بيانات الوزّان (ترويسة الفاتورة) ---
+  // --- بيانات الوزّان (خاتمة الفاتورة) ---
   const [weigher, setWeigher] = useState<WeigherInfo>(EMPTY_WEIGHER);
   const [weigherLoading, setWeigherLoading] = useState(true);
   const [savingWeigher, setSavingWeigher] = useState(false);
@@ -273,14 +271,14 @@ export function SettingsPage() {
       </div>
 
       <div style={s.grid}>
-        {/* Card A: بيانات الوزّان (ترويسة الفاتورة) */}
+        {/* Card A: بيانات الوزّان (خاتمة الفاتورة) */}
         <div style={s.card}>
           <div style={s.iconWrap("#FFF7ED")}>
             <Store size={26} color="#EA580C" />
           </div>
-          <div style={s.cardTitle}>بيانات الوزّان (تظهر في ترويسة الفاتورة)</div>
+          <div style={s.cardTitle}>بيانات الوزّان (تظهر في آخر الفاتورة)</div>
           <div style={s.cardDesc}>
-            تُطبَع في أعلى كل فاتورة. كل الحقول اختيارية؛ الحقل الفارغ لا يُطبَع ولا يترك فراغاً.
+            تُطبَع في آخر كل فاتورة بالصيغة «ميزان (الاسم)» ثم «للاتصال (الهاتف)». كل الحقول اختيارية؛ الحقل الفارغ لا يُطبَع ولا يترك فراغاً.
           </div>
 
           <div style={s.fieldGroup}>
@@ -315,19 +313,6 @@ export function SettingsPage() {
               inputMode="tel"
               onChange={(e) => setWeigherField("phone2", e.target.value)}
             />
-          </div>
-          <div style={s.fieldGroup}>
-            <label style={s.label}>عنوان الفاتورة</label>
-            <textarea
-              style={{ ...s.input, resize: "none" }}
-              rows={2}
-              value={weigher.address}
-              maxLength={WEIGHER_LIMITS.addressLines * WEIGHER_LIMITS.addressLineLength + 1}
-              disabled={weigherLoading}
-              placeholder="سطر أو سطران كحد أقصى"
-              onChange={(e) => setWeigherField("address", limitAddressInput(e.target.value))}
-            />
-            <div style={s.fieldHint}>سطران كحد أقصى.</div>
           </div>
 
           <button

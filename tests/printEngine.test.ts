@@ -5,8 +5,6 @@ import { DIALOG_SETTLE_MS, createPrintEngine, type EngineDeps } from "../src/pri
 import { PrintError, type NativePrintRequest, type PrintDocument } from "../src/print/types.ts";
 import {
   EMPTY_WEIGHER,
-  limitAddressInput,
-  normalizeAddress,
   normalizeWeigher,
 } from "../src/print/weigher.ts";
 
@@ -250,21 +248,16 @@ test("الوزّان: القيم المؤقتة المزروعة تُعامَل 
       name: "اسم صاحب المؤسسة",
       phone1: "0600000000",
       phone2: null,
-      address: "العنوان، بسكرة",
     }),
     EMPTY_WEIGHER,
   );
-  const w = normalizeWeigher({ name: "  وزّان   الأمل ", phone1: " 0555 12 34 56 ", phone2: "", address: "a\n\n b \nc\nd" });
+  const w = normalizeWeigher({ name: "  وزّان   الأمل ", phone1: " 0555 12 34 56 ", phone2: "" });
   assert.equal(w.name, "وزّان الأمل");
   assert.equal(w.phone1, "0555 12 34 56");
-  assert.equal(w.address, "a\nb");
+  assert.equal("address" in w, false, "لا عنوان للوزّان");
 });
 
-test("الوزّان: حدود الأطوال والأسطر", () => {
+test("الوزّان: حدود الأطوال", () => {
   assert.equal(normalizeWeigher({ name: "x".repeat(200) }).name.length, 80);
   assert.equal(normalizeWeigher({ phone1: "1".repeat(99) }).phone1.length, 30);
-  assert.equal(normalizeAddress("x".repeat(300)).length, 80);
-  assert.equal(limitAddressInput("a\nb\nc"), "a\nb");
-  assert.equal(limitAddressInput("a\r\nb"), "a\nb");
-  assert.equal(limitAddressInput("a\n"), "a\n", "الكتابة لا تُقصّ حتى يُضغط حفظ");
 });

@@ -107,6 +107,15 @@ pub fn run() {
             ",
             kind: MigrationKind::Up,
         },
+        // لا عنوان للوزّان بعد الآن (عنوانه هو اسم السوق المطبوع في أعلى الفاتورة): يُحذف الصف
+        // owner_address الذي زرعه الإصدار 1. الإصدار 1 نفسه لا يُعدَّل كي لا يتغيّر checksum
+        // الإصدار المطبَّق على القواعد الموجودة (يرفض sqlx فتح قاعدة عُدِّل migration مطبَّق فيها).
+        Migration {
+            version: 2,
+            description: "drop_owner_address_setting",
+            sql: "DELETE FROM settings WHERE key = 'owner_address';",
+            kind: MigrationKind::Up,
+        },
     ];
 
     #[allow(unused_mut)]

@@ -13,8 +13,11 @@
 طلب الاستدعاء `printDocument(doc, override)` ‹ الإعدادات المحفوظة ‹ `config.byDocument[type]` ‹
 `config.default` (`src/print/print.config.ts`). تُقرأ الإعدادات **طازجة** في كل طباعة.
 مفاتيح جدول `settings`: `print_mode` (`dialog`|`direct`، الغائب = الافتراضي)، `invoice_printer_name`
-(المفتاح القديم للطابعة)، وبيانات الوزّان `owner_name`، `owner_phone`، `owner_phone_2`، `owner_address`
-(الثلاثة الأول والأخير مزروعة بقيم مؤقتة في migration 1 فتُعامَل كفارغة إن لم تُعدَّل).
+(المفتاح القديم للطابعة)، وبيانات الوزّان `owner_name`، `owner_phone`، `owner_phone_2`
+(الأولان مزروعان بقيم مؤقتة في migration 1 فيُعامَلان كفارغين إن لم يُعدَّلا). يُطبَعان (مع الاسم)
+في **آخر الفاتورة** بصيغة «ميزان (الاسم)» ثم «للاتصال (الهاتف)»، لا في أعلاها. لا عنوان للوزّان:
+عنوانه هو اسم السوق الثابت في أعلى الفاتورة (`MARKET_TITLE` في `InvoiceA4.tsx`)، وmigration 2 يحذف
+الصف `owner_address` القديم.
 
 ## التدفق
 `printInvoice(id, withSummary?)` (`services/print.ts`) تجلب الفاتورة طازجة وبيانات الوزّان ← `printDocument`
