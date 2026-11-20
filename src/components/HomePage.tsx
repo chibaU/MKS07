@@ -2,7 +2,7 @@ import { useState, useCallback, memo } from "react";
 import { Plus, X } from "lucide-react";
 import type { Draft, DraftRow } from "./invoice";
 import { InvoiceForm } from "./InvoiceForm";
-import { makeDraft, draftFromInvoice } from "./InvoiceManager";
+import { makeDraft } from "./InvoiceManager";
 import { round2, useStableCallback } from "./InvoiceShared";
 import { invoiceService, type Merchant, type Product, type Box } from "../services/db";
 import { printInvoice } from "../services/print";
@@ -17,9 +17,6 @@ interface HomePageProps {
   setActiveId:(id: string) => void;
   merchants:  Merchant[];
   products:   Product[];
-  // تحديث قائمة الصناديق النشطة في App وإرجاع القائمة المحدَّثة (تُستخدَم في
-  // نسخ بند يحتوي صندوقاً مخفياً — InvoiceForm.tsx).
-  onRefreshBoxes: () => Promise<Box[] | null>;
 }
 
 const MemoInvoiceForm = memo(InvoiceForm);
@@ -104,7 +101,6 @@ export function HomePage({
   setActiveId,
   merchants,
   products,
-  onRefreshBoxes,
 }: HomePageProps) {
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
 
@@ -234,47 +230,7 @@ export function HomePage({
     }
   }, [activeDraft, patchDraft]);
 
-  // ── دورة حياة حقل رقم الفاتورة (القسم 4) + منع فتح نفس الفاتورة في أكثر من
-  // تبويب (القسم 5)، من مصدر حقل الرقم داخل الصفحة الرئيسية تحديداً ──
-  const onResolveInvoiceNumber = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || !activeDraft) return;
 
-    const targetId = activeDraft.id;
-
-    try {
-      const matched = await invoiceService.getInvoiceFullDetailsByNumber(trimmed);
-      if (!matched) return; // لا تطابق — الحقل يبقى نصاً حراً (القسم 4)
-
-      const existingTab = drafts.find(
-        (d) => d.invoiceId === matched.id && d.id !== targetId,
-      );
-      if (existingTab) {
-        setActiveId(existingTab.id);
-        alert("هذه الفاتورة مفتوحة بالفعل في تبويب آخر");
-        patchDraft(targetId, { invoiceNumberInput: "" });
-        return;
-      }
-
-      // نقطة 13: ترقيم كسول قبل العرض إن كانت بلا رقم بعد
-      let finalInvoice = matched;
-      if (matched.invoice_number === null) {
-        const numbered = await invoiceService.ensureInvoiceNumbered(matched.id);
-        finalInvoice = { ...matched, invoice_number: numbered.invoiceNumber };
-      }
-
-      // نقطة 12: إعادة فتح الفواتير المغلقة تتحول فوراً إلى is_open=1 عند التحميل
-      await invoiceService.setOpenState(matched.id, 1);
-
-      const newDraft = draftFromInvoice(finalInvoice, realBoxes);
-      setDrafts((prev) =>
-        prev.map((d) => (d.id === targetId ? { ...newDraft, id: targetId } : d)),
-      );
-    } catch (error) {
-      console.error("خطأ أثناء تحميل الفاتورة برقمها:", error);
-      alert("تعذر تحميل الفاتورة، يرجى مراجعة سجل الأخطاء.");
-    }
-  }, [activeDraft, drafts, realBoxes, patchDraft, setDrafts, setActiveId]);
 
   // الطباعة عملية مستقلة: لا تغلق الفاتورة ولا تغيّر حالة التبويبة.
   const onPrintInvoice = useCallback((includeRepeatedProductSummary = false) => {
@@ -371,11 +327,9 @@ export function HomePage({
         draft={activeDraft}
         onChange={handleChange}
         handleInsertRow={handleInsertRow}
-        onResolveInvoiceNumber={onResolveInvoiceNumber}
         onPrintInvoice={onPrintInvoice}
         merchants={merchants}
         products={products}
-        onRefreshBoxes={onRefreshBoxes}
       />
 
       {confirmCloseId && (

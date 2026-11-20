@@ -8,8 +8,8 @@ export interface DraftBox {
 export interface DraftRowBox {
   id: number;
   boxCount: number;
-  // اسم الصندوق وقت بناء اللقطة — يجعل عرض البند مستقلاً عن قائمة الصناديق النشطة
-  // (draft.boxes)، فلا يختفي اسم صندوق مخفي (is_visible = 0) من فاتورة قديمة.
+  // اسم الصندوق وقت بناء اللقطة — يجعل عرض البند مستقلاً عن قائمة الصناديق
+  // (draft.boxes).
   name?: string;
 }
 

@@ -42,13 +42,13 @@ export default function App() {
   useEffect(() => {
     async function init() {
       try {
-        const [visibleBoxes, allMerchants, allProducts] = await Promise.all([
-          boxService.getVisible(),
+        const [allBoxes, allMerchants, allProducts] = await Promise.all([
+          boxService.getAll(),
           merchantService.getAll(),
           productService.getAll(),
         ]);
 
-        setRealBoxes(visibleBoxes);
+        setRealBoxes(allBoxes);
         setMerchants(allMerchants);
         setProducts(allProducts);
 
@@ -67,13 +67,13 @@ export default function App() {
 
         if (numberedInvoices.length > 0) {
           const restoredDrafts = numberedInvoices.map((invoice) =>
-            draftFromInvoice(invoice, visibleBoxes),
+            draftFromInvoice(invoice, allBoxes),
           );
           setDrafts(restoredDrafts);
           setActiveId(restoredDrafts[0].id);
         } else {
           const firstId = newId();
-          setDrafts([makeDraft(firstId, visibleBoxes)]);
+          setDrafts([makeDraft(firstId, allBoxes)]);
           setActiveId(firstId);
         }
 
@@ -115,21 +115,15 @@ export default function App() {
     }
   }, []);
 
-  // نفس النمط، لإكمال تحديث قائمة الصناديق النشطة فوراً بعد أي إضافة/تعديل/
-  // حذف/تبديل رؤية من BoxesPage — getVisible() نفسها المستخدمة في التحميل
-  // الأولي (القسم 6.4 من AI_CONTEXT.md: النشطة فقط هي ما يظهر للوزّان).
-  // تُرجع القائمة المحدَّثة نفسها (أو null عند الفشل) كي يستطيع المستدعي — مثل
-  // نسخ بند مع صندوق مخفي في InvoiceForm.tsx — قراءتها فوراً دون انتظار إعادة
-  // رسم App. المستدعون الذين لا يحتاجون القيمة (BoxesPage) يتجاهلونها ببساطة.
-  // لا تمسّ هذه الدالة drafts إطلاقاً: التبويبات المفتوحة تحتفظ بلقطاتها.
-  const refreshBoxes = useCallback(async (): Promise<Box[] | null> => {
+  // تحديث قائمة الصناديق بعد أي إضافة/تعديل/حذف من BoxesPage. لا تمسّ drafts:
+  // التبويبات المفتوحة تحتفظ بلقطاتها، والقائمة المحدَّثة تراها التبويبات التي
+  // تُفتَح بعد ذلك.
+  const refreshBoxes = useCallback(async () => {
     try {
-      const data = await boxService.getVisible();
+      const data = await boxService.getAll();
       setRealBoxes(data);
-      return data;
     } catch (err) {
       console.error("خطأ أثناء تحديث الصناديق:", err);
-      return null;
     }
   }, []);
 
@@ -203,7 +197,6 @@ export default function App() {
               setActiveId={setActiveId}
               merchants={merchants}
               products={products}
-              onRefreshBoxes={refreshBoxes}
             />
           )}
         </div>

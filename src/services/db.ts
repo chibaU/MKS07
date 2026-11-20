@@ -44,7 +44,6 @@ export interface Box {
   id: number;
   name: string;
   weight: number;
-  is_visible: number;
 }
 
 export interface Invoice {
@@ -102,7 +101,6 @@ export interface InvoiceWithMerchant extends Invoice {
 export interface InvoiceDetailBoxFull extends InvoiceDetailBox {
   box_name: string;
   box_weight: number;
-  is_visible: number;
 }
 
 export interface InvoiceDetailFull extends InvoiceDetail {
@@ -166,7 +164,6 @@ interface InvoiceDetailBoxRow extends InvoiceDetailBox {
   detail_id: number;
   box_name: string;
   box_weight: number;
-  is_visible: number;
 }
 
 // خطأ مخصص يُرفَع فقط حين يشير مرجع (تاجر أو صندوق) اخترته الواجهة من لقطة
@@ -366,8 +363,7 @@ async function fetchInvoiceDetailsFull(
       invoice_detail_boxes.box_id,
       invoice_detail_boxes.box_count,
       boxes.name AS box_name,
-      boxes.weight AS box_weight,
-      boxes.is_visible
+      boxes.weight AS box_weight
     FROM invoice_detail_boxes
     INNER JOIN invoice_details ON invoice_details.id = invoice_detail_boxes.invoice_detail_id
     INNER JOIN boxes ON boxes.id = invoice_detail_boxes.box_id
@@ -385,8 +381,7 @@ async function fetchInvoiceDetailsFull(
         box_id: box.box_id,
         box_count: box.box_count,
         box_name: box.box_name,
-        box_weight: box.box_weight,
-        is_visible: box.is_visible
+        box_weight: box.box_weight
       }))
   }));
 }
@@ -427,9 +422,7 @@ async function assertMerchantExists(
 }
 
 // نفس الفكرة لكل الصناديق المرجعية دفعة واحدة (استعلام IN وحيد بدل استعلام
-// منفصل لكل box_id) — يتحقق من الوجود فقط (لا is_visible)، لأن صندوقاً
-// مخفياً يبقى مرجعاً صالحاً تماماً؛ الإخفاء والحذف أمران مختلفان عمداً في هذا
-// التطبيق (راجع toggleVisibility مقابل handleDelete في BoxesPage.tsx).
+// منفصل لكل box_id) — يتحقق من وجود الصفوف فقط.
 async function assertBoxesExist(
   raw: RawDatabaseConnection,
   boxIds: number[]
@@ -585,17 +578,7 @@ export const productService = {
 export const boxService = {
   async getAll(): Promise<Box[]> {
     return await runExclusive((raw) =>
-      raw.select<Box[]>(
-        'SELECT id, name, weight, is_visible FROM boxes ORDER BY name ASC'
-      )
-    );
-  },
-
-  async getVisible(): Promise<Box[]> {
-    return await runExclusive((raw) =>
-      raw.select<Box[]>(
-        'SELECT id, name, weight, is_visible FROM boxes WHERE is_visible = 1 ORDER BY name ASC'
-      )
+      raw.select<Box[]>('SELECT id, name, weight FROM boxes ORDER BY name ASC')
     );
   },
 
@@ -605,37 +588,13 @@ export const boxService = {
     );
   },
 
-  async update(
-    id: number,
-    name: string,
-    weight: number,
-    is_visible: number
-  ): Promise<QueryResult> {
+  async update(id: number, name: string, weight: number): Promise<QueryResult> {
     return await runExclusive((raw) =>
       raw.execute(
-        'UPDATE boxes SET name = $1, weight = $2, is_visible = $3 WHERE id = $4',
-        [name, weight, is_visible, id]
+        'UPDATE boxes SET name = $1, weight = $2 WHERE id = $3',
+        [name, weight, id]
       )
     );
-  },
-
-  // إظهار صناديق مخفية (is_visible: 0 → 1) دون المساس باسمها أو وزنها — تُستخدَم
-  // من ميزة "نسخ بند إلى نموذج الإدخال" (InvoiceForm.tsx) لإرجاع الصناديق
-  // المخفية المستخدَمة في البند المنسوخ إلى قائمة الصناديق النشطة. الشرط
-  // `AND is_visible = 0` يجعل العملية no-op فعلية للصناديق الظاهرة أصلاً، فلا
-  // يُكتَب شيء إلا لما يلزم إظهاره فعلاً. تُعيد عدد الصفوف التي تغيّرت.
-  async revealBoxes(ids: number[]): Promise<number> {
-    const uniqueIds = [...new Set(ids)];
-    if (uniqueIds.length === 0) return 0;
-
-    const placeholders = uniqueIds.map((_, i) => `$${i + 1}`).join(', ');
-    const result = await runExclusive((raw) =>
-      raw.execute(
-        `UPDATE boxes SET is_visible = 1 WHERE id IN (${placeholders}) AND is_visible = 0`,
-        uniqueIds
-      )
-    );
-    return result.rowsAffected;
   },
 
   async delete(id: number): Promise<QueryResult> {

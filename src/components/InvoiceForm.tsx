@@ -1,12 +1,10 @@
-import { useMemo, useCallback, useState, useEffect, useRef, memo } from "react";
-import { Trash2, Copy, Printer, X, Hash, Store } from "lucide-react";
+import { useMemo, useCallback, useState, useEffect, useRef, memo, type CSSProperties } from "react";
+import { Trash2, Copy, Printer, X, Store } from "lucide-react";
 import type { Draft, DraftBox, DraftRow } from "./invoice";
 import {
   type Merchant,
   type Product,
-  type Box,
   invoiceService,
-  boxService,
   StaleReferenceError,
 } from "../services/db";
 import {
@@ -33,6 +31,142 @@ import { InvoiceLineEntry } from "./InvoiceLineEntry";
 // عدد شارات "الصناديق حسب النوع" الظاهرة قبل الطيّ التلقائي في صف الإجماليات؛
 // ما زاد عنه يُخفى خلف زر "+N أخرى" لتبقى الإجماليات قريبة من أسفل الجدول.
 const BOX_TYPES_COLLAPSED_LIMIT = 8;
+
+// ─── رأس البطاقة: التاجر + رقم الفاتورة (عرض فقط) ───────────────────────────
+// شبكة من صفين: الصف 1 = عنوان التاجر، الصف 2 = خانة التاجر + شارة الرقم.
+// الشارة align-self: stretch في الصف 2 فتأخذ ارتفاع خانة التاجر نفسه تلقائياً
+// (بلا رقم ثابت يتأثر بخط Cairo أو حجم الخط).
+const CARD_STYLE: CSSProperties = { ...c.card, padding: "20px 24px" };
+
+const HEADER_GRID: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) clamp(220px, 24vw, 300px)",
+  columnGap: "20px",
+  marginBottom: "20px",
+};
+const LABEL_ROW: CSSProperties = {
+  gridColumn: 1,
+  gridRow: 1,
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "12px",
+  minWidth: 0,
+};
+const MERCHANT_CELL: CSSProperties = { ...FIELD_VARS, gridColumn: 1, gridRow: 2 };
+const STATUS_BASE: CSSProperties = {
+  display: "block",
+  minWidth: 0,
+  lineHeight: "28px", // نفس ارتفاع أيقونة العنوان
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  fontSize: "14px",
+  fontWeight: 600,
+};
+const STATUS_OK: CSSProperties = { ...STATUS_BASE, color: "#047857" };
+const STATUS_WARN: CSSProperties = { ...STATUS_BASE, color: "#DC2626" };
+
+const BADGE_BASE: CSSProperties = {
+  gridColumn: 2,
+  gridRow: 2,
+  alignSelf: "stretch",
+  boxSizing: "border-box",
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "0 14px",
+  borderRadius: "8px", // نفس انحناء خانات الإدخال
+  overflow: "hidden",
+};
+const BADGE_SAVED: CSSProperties = { ...BADGE_BASE, border: "2px solid #93C5FD", backgroundColor: "#EFF6FF" };
+const BADGE_NEW: CSSProperties = { ...BADGE_BASE, border: "2px dashed #94A3B8", backgroundColor: "#F8FAFC" };
+const BADGE_NUMBER: CSSProperties = {
+  fontSize: "22px",
+  fontWeight: 800,
+  color: "#1E40AF",
+  lineHeight: 1.2,
+  direction: "ltr",
+  unicodeBidi: "isolate",
+  userSelect: "all", // نقرة واحدة تحدد الرقم كاملاً للنسخ
+  whiteSpace: "nowrap",
+};
+const BADGE_HINT: CSSProperties = {
+  minWidth: 0,
+  fontSize: "15px",
+  fontWeight: 600,
+  color: "#64748B",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+// props بسيطة (نص) فلا يُعاد رسمها أثناء الكتابة في بقية الحقول.
+const InvoiceNumberBadge = memo(function InvoiceNumberBadge({ number }: { number: string }) {
+  return number ? (
+    <div style={BADGE_SAVED} title="رقم الفاتورة">
+      <span style={BADGE_NUMBER}>{number}</span>
+    </div>
+  ) : (
+    <div style={BADGE_NEW}>
+      <span style={BADGE_HINT}>رقم الفاتورة — يُولَّد الرقم تلقائياً</span>
+    </div>
+  );
+});
+
+interface InvoiceHeaderProps {
+  merchantName: string;
+  merchantId: number | undefined;
+  invoiceNumber: string;
+  suggestions: Suggestion[];
+  onMerchantChange: (val: string) => void;
+  onMerchantSelect: (label: string, id?: number) => void;
+}
+
+// كل الـ props قيم بسيطة أو دوال بهوية ثابتة، فلا يُعاد رسم الرأس مع ضغطات المنتج/الوزن/السعر.
+const InvoiceHeader = memo(function InvoiceHeader({
+  merchantName,
+  merchantId,
+  invoiceNumber,
+  suggestions,
+  onMerchantChange,
+  onMerchantSelect,
+}: InvoiceHeaderProps) {
+  const unregistered = !merchantId && merchantName.trim() !== "";
+  return (
+    <>
+      <style>{FIELD_CSS}</style>
+      <div style={HEADER_GRID}>
+        <div style={LABEL_ROW}>
+          <FieldLabel icon={<Store size={17} />}>اسم التاجر</FieldLabel>
+          {merchantId ? (
+            <span style={STATUS_OK}>✓ تاجر محفوظ</span>
+          ) : unregistered ? (
+            <span
+              title='هذا الاسم غير مسجَّل — اختر تاجراً من القائمة أو سجّله أولاً من صفحة "التجار"'
+              style={STATUS_WARN}
+            >
+              ⚠ غير مسجَّل — اختر من القائمة
+            </span>
+          ) : null}
+        </div>
+
+        <div className="le-f" style={MERCHANT_CELL}>
+          <Autocomplete
+            value={merchantName}
+            onChange={onMerchantChange}
+            onSelect={onMerchantSelect}
+            suggestions={suggestions}
+            placeholder="أدخل اسم التاجر أو ابحث عن موجود..."
+          />
+        </div>
+
+        <InvoiceNumberBadge number={invoiceNumber} />
+      </div>
+    </>
+  );
+});
 
 // ─── صف بند واحد في الجدول ───────────────────────────────────────────────────
 // memo: عند الكتابة في أي حقل إدخال (كل ضغطة مفتاح) لا تتغير بيانات الصفوف
@@ -166,23 +300,18 @@ interface InvoiceFormProps {
   draft: Draft;
   onChange: (patch: Partial<Draft>) => void;
   handleInsertRow: (row: DraftRow) => Promise<void>;
-  onResolveInvoiceNumber: (text: string) => void;
   onPrintInvoice: (includeRepeatedProductSummary?: boolean) => void;
   merchants: Merchant[];
   products: Product[];
-  // يحدّث قائمة الصناديق النشطة العامة (App) ويُرجع القائمة المحدَّثة، أو null عند الفشل.
-  onRefreshBoxes: () => Promise<Box[] | null>;
 }
 
 export function InvoiceForm({
   draft,
   onChange,
   handleInsertRow,
-  onResolveInvoiceNumber,
   onPrintInvoice,
   merchants,
   products,
-  onRefreshBoxes,
 }: InvoiceFormProps) {
   const merchantSuggestions = useMemo<Suggestion[]>(
     () =>
@@ -262,101 +391,63 @@ export function InvoiceForm({
   // ويُدرجها بنفسه بزر "إدراج السطر". الاستبدال كامل: كل حقل من الحقول الخمسة
   // يُكتَب من جديد، وأعداد كل الصناديق تُصفَّر أولاً ثم تُوضَع أعداد البند فقط.
   //
-  // الصناديق المخفية (is_visible = 0) المستخدَمة في البند تُظهَر في القاعدة
-  // (revealBoxes) ثم تُحدَّث قائمة الصناديق العامة (onRefreshBoxes → realBoxes في
-  // App) فتراها أي تبويب يُفتَح لاحقاً. لقطة boxes الخاصة بهذا التبويب وحده تُبنى
-  // من تلك القائمة الحديثة؛ التبويبات الأخرى لا تُلمَس أبداً (onChange يستهدف
-  // التبويب النشط وقت الضغط فقط).
-  //
   // lineEntryKey: InvoiceLineEntry يحتفظ برسالتي خطأ محليتين (insertError،
   // weightInputError) لا تُصفَّران عند تعديل الـ draft من الخارج، وخطأ قديم
   // منهما قد يبقى ظاهراً ويمنع الإدراج بعد النسخ — فتغيير المفتاح يعيد تركيب
   // المكوّن بحالة محلية نظيفة (لا يعطّل أي حقل ولا يلمس بيانات الـ draft).
   const [lineEntryKey, setLineEntryKey] = useState(0);
   const lineEntryRef = useRef<HTMLDivElement>(null);
-  const duplicatingRef = useRef(false); // يمنع تداخل نسختين متتاليتين أثناء الانتظار على القاعدة
 
-  const handleDuplicateRow = useStableCallback(async (row: DraftRow) => {
-    if (duplicatingRef.current) return;
-    duplicatingRef.current = true;
+  const handleDuplicateRow = useStableCallback((row: DraftRow) => {
+    const usedBoxes = row.boxesSnapshot ?? [];
 
-    try {
-      const usedBoxes = row.boxesSnapshot ?? [];
+    // وزن الميزان يُعاد بناؤه من أوزان الصناديق الفارغة في نموذج هذا التبويب؛
+    // صندوق مستخدَم في البند وغائب عن النموذج يجعل إعادة البناء غير دقيقة،
+    // فنوقف النسخ بدل ملء النموذج بقيم خاطئة.
+    const known = new Set(draft.boxes.map((b) => b.id));
+    if (usedBoxes.some((b) => !known.has(b.id))) {
+      alert("أحد الصناديق المستخدمة في هذا البند غير موجود في نموذج الإدخال الحالي — تعذر نسخ البند.");
+      return;
+    }
 
-      // قائمة الصناديق التي سيُبنى منها نموذج الإدخال (مرتبة بالاسم كما في makeDraft)
-      let boxList: Pick<DraftBox, "id" | "name" | "emptyWeight">[];
+    // تصفير كل الأعداد ثم وضع أعداد البند المنسوخ فقط
+    const copiedCounts = new Map(usedBoxes.map((b) => [b.id, b.boxCount]));
+    const nextBoxes: DraftBox[] = draft.boxes.map((b) => ({
+      ...b,
+      countInput: copiedCounts.get(b.id) ?? 0,
+    }));
 
-      if (usedBoxes.length === 0) {
-        // بند بلا صناديق: لا حاجة لأي عملية قاعدة، فقط تصفير كل الأعداد
-        boxList = draft.boxes;
-      } else {
-        await boxService.revealBoxes(usedBoxes.map((b) => b.id));
-        const freshBoxes = await onRefreshBoxes();
-        if (freshBoxes === null) {
-          alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
-          return;
-        }
-        boxList = freshBoxes.map((b) => ({
-          id: b.id,
-          name: b.name,
-          emptyWeight: b.weight,
-        }));
+    // وزن الميزان = الوزن الصافي + مجموع (عدد × وزن فارغ) للصناديق المستخدمة،
+    // بنفس صيغة totalEmptyWeight في InvoiceLineEntry ونفس round2.
+    const totalEmptyWeight = nextBoxes.reduce(
+      (sum, b) => sum + b.countInput * b.emptyWeight,
+      0,
+    );
+    const scaleWeight = round2(row.weight + totalEmptyWeight);
 
-        // صندوق مستخدَم لا يوجد في القاعدة إطلاقاً (حُذف) — لا يمكن إعادة بناء
-        // وزن الميزان بدقة، فنوقف النسخ بدل ملء نموذج بقيم خاطئة.
-        const known = new Set(boxList.map((b) => b.id));
-        if (usedBoxes.some((b) => !known.has(b.id))) {
-          alert("أحد الصناديق المستخدمة في هذا البند لم يعد موجوداً في النظام — تعذر نسخ البند.");
-          return;
-        }
-      }
+    // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج.
+    // سعر بسنتيم غير صفري (بند قديم من قبل MoneyInput، مثل 87,50) لا يُدوَّر أبداً:
+    // التدوير يغيّر المبلغ بحجم الكمية (87,5 × 10.000 كغ ← فرق 5.000 دج)، ولا يمكن
+    // وضعه كما هو في MoneyInput لأنه يتجاهل الفاصلة فيقرؤه ×10. فيُترك الحقل فارغاً
+    // ويُنبَّه المستخدم ليُدخل السعر بنفسه عن قصد.
+    const priceIsWhole = Number.isInteger(row.price);
+    onChange({
+      productInput: row.product,
+      productId: row.productId ?? undefined,
+      scaleWeightInput: String(scaleWeight),
+      priceInput: row.price > 0 && priceIsWhole ? String(row.price) : "",
+      boxes: nextBoxes,
+    });
+    setLineEntryKey((k) => k + 1);
 
-      // تصفير كل الأعداد ثم وضع أعداد البند المنسوخ فقط
-      const copiedCounts = new Map(usedBoxes.map((b) => [b.id, b.boxCount]));
-      const nextBoxes: DraftBox[] = boxList.map((b) => ({
-        id: b.id,
-        name: b.name,
-        emptyWeight: b.emptyWeight,
-        countInput: copiedCounts.get(b.id) ?? 0,
-      }));
+    // الجدول أسفل النموذج: بدون هذا قد يبدو الزر بلا أثر لمن ضغطه من أسفل صفحة طويلة
+    lineEntryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-      // وزن الميزان = الوزن الصافي + مجموع (عدد × وزن فارغ) للصناديق المستخدمة،
-      // بنفس صيغة totalEmptyWeight في InvoiceLineEntry ونفس round2.
-      const totalEmptyWeight = nextBoxes.reduce(
-        (sum, b) => sum + b.countInput * b.emptyWeight,
-        0,
+    if (row.price > 0 && !priceIsWhole) {
+      alert(
+        `سعر البند الأصلي (${formatMoney(row.price)} دج) يحتوي سنتيماً ولا يمكن إدخاله في خانة السعر، ` +
+          "فتُرك الحقل فارغاً كي لا يُدوَّر السعر بصمت. أدخل السعر يدوياً.",
       );
-      const scaleWeight = round2(row.weight + totalEmptyWeight);
-
-      // priceInput أرقام فقط = دنانير كاملة (MoneyInput)؛ سعر صفري = حقل فارغ كما أُدرج.
-      // سعر بسنتيم غير صفري (بند قديم من قبل MoneyInput، مثل 87,50) لا يُدوَّر أبداً:
-      // التدوير يغيّر المبلغ بحجم الكمية (87,5 × 10.000 كغ ← فرق 5.000 دج)، ولا يمكن
-      // وضعه كما هو في MoneyInput لأنه يتجاهل الفاصلة فيقرؤه ×10. فيُترك الحقل فارغاً
-      // ويُنبَّه المستخدم ليُدخل السعر بنفسه عن قصد.
-      const priceIsWhole = Number.isInteger(row.price);
-      onChange({
-        productInput: row.product,
-        productId: row.productId ?? undefined,
-        scaleWeightInput: String(scaleWeight),
-        priceInput: row.price > 0 && priceIsWhole ? String(row.price) : "",
-        boxes: nextBoxes,
-      });
-      setLineEntryKey((k) => k + 1);
-
-      // الجدول أسفل النموذج: بدون هذا قد يبدو الزر بلا أثر لمن ضغطه من أسفل صفحة طويلة
-      lineEntryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-      if (row.price > 0 && !priceIsWhole) {
-        alert(
-          `سعر البند الأصلي (${formatMoney(row.price)} دج) يحتوي سنتيماً ولا يمكن إدخاله في خانة السعر، ` +
-            "فتُرك الحقل فارغاً كي لا يُدوَّر السعر بصمت. أدخل السعر يدوياً.",
-        );
-      }
-    } catch (error) {
-      console.error("خطأ أثناء نسخ البند:", error);
-      alert("تعذر نسخ البند، يرجى مراجعة سجل الأخطاء.");
-    } finally {
-      duplicatingRef.current = false;
     }
   });
 
@@ -371,9 +462,8 @@ export function InvoiceForm({
   // و{{عدد_الصناديق_الكلي}}. عرض فقط — لا يُحفَظ في القاعدة ولا في الـ Draft.
   //
   // boxTypes: تفصيل عدد الصناديق لكل نوع عبر كل البنود (تجميع بمعرّف الصندوق).
-  // الاسم يأتي من لقطة البند نفسها (bs.name) لا من قائمة الصناديق النشطة، فتظهر
-  // الصناديق المخفية (is_visible = 0) بأسمائها في الفواتير القديمة. مجموع أعداد
-  // boxTypes يساوي totals.boxes دائماً. عرض فقط — لا يدخل في الطباعة ولا القاعدة.
+  // الاسم يأتي من لقطة البند نفسها (bs.name). مجموع أعداد boxTypes يساوي
+  // totals.boxes دائماً. عرض فقط — لا يدخل في الطباعة ولا القاعدة.
   const totals = useMemo(() => {
     let weight = 0;
     let boxes = 0;
@@ -483,102 +573,17 @@ export function InvoiceForm({
 
   return (
     <div style={{ padding: "28px 32px" }}>
-      <div style={c.card}>
-        <div
-          style={{
-            color: "#1E293B",
-            fontSize: "20px",
-            fontWeight: 700,
-            marginBottom: "20px",
-          }}
-        >
-          {draft.invoiceId !== null
-            ? `فاتورة رقم #${draft.invoiceNumberInput}`
-            : "إنشاء فاتورة جديدة"}
-        </div>
+      {/* بطاقة الإدخال: رأس (التاجر + رقم الفاتورة للعرض) ثم نموذج البند */}
+      <div style={CARD_STYLE}>
+        <InvoiceHeader
+          merchantName={draft.merchantName}
+          merchantId={draft.merchantId}
+          invoiceNumber={draft.invoiceId !== null ? draft.invoiceNumberInput : ""}
+          suggestions={merchantSuggestions}
+          onMerchantChange={handleMerchantChange}
+          onMerchantSelect={handleMerchantSelect}
+        />
 
-        <style>{FIELD_CSS}</style>
-
-        {/* رقم الفاتورة (القسم 4) — الرقم المؤكَّد (المقفل) يبقى رمادياً بلا هوية الحقل المفتوح */}
-        <div
-          className={draft.isNumberLocked ? undefined : "le-f"}
-          style={{ marginBottom: "18px", ...FIELD_VARS }}
-        >
-          <FieldLabel icon={<Hash size={17} />}>رقم الفاتورة</FieldLabel>
-          <input
-            type="text"
-            style={{
-              ...c.input,
-              backgroundColor: draft.isNumberLocked ? "#F1F5F9" : c.input.backgroundColor,
-              color: draft.isNumberLocked ? "#64748B" : c.input.color,
-              cursor: draft.isNumberLocked ? "not-allowed" : "text",
-            }}
-            placeholder="اكتب رقم فاتورة موجودة لفتحها، أو اتركه فارغاً ليُولَّد تلقائياً"
-            value={draft.invoiceNumberInput}
-            readOnly={draft.isNumberLocked}
-            onChange={(e) => onChange({ invoiceNumberInput: e.target.value })}
-            onBlur={(e) => {
-              if (!draft.isNumberLocked) onResolveInvoiceNumber(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !draft.isNumberLocked) {
-                e.preventDefault();
-                onResolveInvoiceNumber(draft.invoiceNumberInput);
-              }
-            }}
-          />
-          {draft.isNumberLocked && (
-            <div style={{ marginTop: "6px", fontSize: "14px", fontWeight: 600, color: "#047857" }}>
-              ✓ الرقم مؤكَّد — غير قابل للتعديل
-            </div>
-          )}
-        </div>
-
-        {/* التاجر */}
-        <div className="le-f" style={{ marginBottom: "18px", ...FIELD_VARS }}>
-          <FieldLabel icon={<Store size={17} />}>اسم التاجر</FieldLabel>
-          <Autocomplete
-            value={draft.merchantName}
-            onChange={handleMerchantChange}
-            onSelect={handleMerchantSelect}
-            suggestions={merchantSuggestions}
-            placeholder="أدخل اسم التاجر أو ابحث عن موجود..."
-          />
-          {draft.merchantId && (
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "14px",
-                fontWeight: 600,
-                color: "#047857",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-              }}
-            >
-              ✓ تاجر محفوظ — سيتم ربط الفاتورة بحسابه
-            </div>
-          )}
-          {!draft.merchantId && draft.merchantName.trim() !== "" && (
-            <div
-              style={{
-                marginTop: "6px",
-                fontSize: "14px",
-                fontWeight: 600,
-                color: "#DC2626",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-              }}
-            >
-              ⚠ هذا الاسم غير مسجَّل — اختر تاجراً من القائمة أو سجّله أولاً من
-              صفحة "التجار"
-            </div>
-          )}
-        </div>
-
-        {/* إدراج بند جديد — مسار موحَّد مع تعديل الفاتورة المحفوظة عبر InvoiceLineEntry
-            (نفس المكوّن المستخدَم سابقاً في InvoiceEditPanel.tsx المحذوف الآن) */}
         <div ref={lineEntryRef}>
           <InvoiceLineEntry
             key={lineEntryKey}
