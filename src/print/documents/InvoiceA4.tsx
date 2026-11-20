@@ -88,6 +88,12 @@ const FLOW_ROOT: CSSProperties = { display: "flow-root" };
 /** الفراغ بين جدول البنود وصندوق الإجماليات. */
 const TOTALS_GAP = "3.5mm";
 
+/**
+ * ارتفاع سطر التذييل بوحدة مطلقة (لا نسبة): سطرا الوزّان بُعدهما ثابت ولا يتأثر بحسابات الخط في
+ * المحرك. ظهر في WebKitGTK بعد اعتماد رقم نسبي (1.5) فراغٌ بحجم سطر بين اسم الوزّان وهاتفه.
+ */
+const FOOTER_LINE = "4.75mm";
+
 // السطر الأول من الفاتورة: اسم السوق (ثابت). غيّره هنا إن لزم.
 const MARKET_TITLE = "سوق الجملة للخضر والفواكه ببلدية الغروس";
 // اسم السوق: عند 26pt يبلغ الاسم 179.7mm، ويتّسع في Chromium (186mm) لكنه التفّ في WebKitGTK
@@ -229,7 +235,7 @@ const s = {
     textAlign: "center",
     fontSize: "9pt",
     fontWeight: 600,
-    lineHeight: 1.5,
+    lineHeight: FOOTER_LINE,
   },
   summaryTitle: {
     fontSize: "11.5pt",
@@ -240,19 +246,18 @@ const s = {
   // — الصفحات: صندوق بارتفاع ثابت (ملف المحرّك في paginate.ts) والتذييل مثبَّت في أسفله —
   // يُفصَل بين الصفحات بكسر صريح؛ الأخيرة بلا كسر فلا تُطبع صفحة فارغة بعدها.
   pageBreak: { breakAfter: "page", pageBreakAfter: "always" },
-  // التذييل ثلاثة أعمدة: رقم الفاتورة (يمين) | الوزّان (وسط) | رقم الصفحة (يسار). الوسط ضعف
-  // الجانبين فيبقى مركز الصفحة مركزَه ويلتفّ اسم طويل داخله بدل أن يزاحم الجانبين.
-  pageLine: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)",
-    columnGap: "4mm",
-    alignItems: "center",
+  // التذييل جدول من ثلاث خانات: رقم الفاتورة (يمين) | الوزّان (وسط) | رقم الصفحة (يسار). الوسط ضعف
+  // الجانبين فيبقى مركز الصفحة مركزَه ويلتفّ اسم طويل داخله. جدول (لا grid) وعرض أعمدته ثابت
+  // لأن تخطيطه أثبت المحركات، والمحاذاة للأعلى فيقع رقم الفاتورة ورقم الصفحة على سطر اسم الوزّان.
+  footerTable: {
+    width: "100%",
+    tableLayout: "fixed",
+    borderCollapse: "collapse",
     fontSize: "8.5pt",
     fontWeight: 600,
-    lineHeight: 1.5,
+    lineHeight: FOOTER_LINE,
   },
-  pageLineStart: { textAlign: "start" },
-  pageLineEnd: { textAlign: "end" },
+  footerCell: { padding: 0, verticalAlign: "top" },
   // بيانات الوزّان في الوضع الاحتياطي (تدفّق بلا صفحات): بعد آخر المحتوى.
   weigherInFlow: { marginTop: "9mm" },
   // نسخة مخفية خارج الشاشة بعرض محتوى الصفحة نفسه تُقاس منها ارتفاعات الكتل (لا تُطبع أبداً:
@@ -418,7 +423,7 @@ function WeigherFooter({ weigher, style }: { weigher: WeigherInfo; style?: CSSPr
   const hasName = !isBlank(weigher.name);
   if (!hasName && phones.length === 0) return null;
   return (
-    <footer style={{ ...s.weigherFooter, ...style }}>
+    <div style={{ ...s.weigherFooter, ...style }}>
       {hasName && (
         <div>
           ميزان <bdi>{weigher.name}</bdi>
@@ -435,7 +440,7 @@ function WeigherFooter({ weigher, style }: { weigher: WeigherInfo; style?: CSSPr
           ))}
         </div>
       )}
-    </footer>
+    </div>
   );
 }
 
@@ -621,21 +626,30 @@ function PageFooter({
   marker?: string;
 }) {
   return (
-    <div style={{ ...FLOW_ROOT, ...s.pageLine }} data-m={marker}>
-      <span style={s.pageLineStart}>
-        {!isBlank(data.invoiceNumber) && (
-          <>
-            رقم الفاتورة: <span style={s.numWrap}>{data.invoiceNumber}</span>
-          </>
-        )}
-      </span>
-      <div>
-        <WeigherFooter weigher={data.weigher} />
-      </div>
-      <span style={s.pageLineEnd}>
-        صفحة <Num>{page}</Num> من <Num>{total}</Num>
-      </span>
-    </div>
+    <table style={s.footerTable} data-m={marker}>
+      <colgroup>
+        <col style={{ width: "25%" }} />
+        <col style={{ width: "50%" }} />
+        <col style={{ width: "25%" }} />
+      </colgroup>
+      <tbody>
+        <tr>
+          <td style={{ ...s.footerCell, textAlign: "start" }}>
+            {!isBlank(data.invoiceNumber) && (
+              <>
+                رقم الفاتورة: <span style={s.numWrap}>{data.invoiceNumber}</span>
+              </>
+            )}
+          </td>
+          <td style={s.footerCell}>
+            <WeigherFooter weigher={data.weigher} />
+          </td>
+          <td style={{ ...s.footerCell, textAlign: "end" }}>
+            صفحة <Num>{page}</Num> من <Num>{total}</Num>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
