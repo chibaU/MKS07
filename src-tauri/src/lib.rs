@@ -49,7 +49,8 @@ pub fn run() {
                 CREATE TABLE IF NOT EXISTS boxes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    weight REAL NOT NULL
+                    weight REAL NOT NULL,
+                    is_visible INTEGER DEFAULT 1
                 );
 
                 -- جدول الفواتير

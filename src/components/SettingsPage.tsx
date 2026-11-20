@@ -144,7 +144,7 @@ export function SettingsPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // --- بيانات الوزّان (خاتمة الفاتورة) ---
+  // --- بيانات الوزّان (تذييل كل صفحة) ---
   const [weigher, setWeigher] = useState<WeigherInfo>(EMPTY_WEIGHER);
   const [weigherLoading, setWeigherLoading] = useState(true);
   const [savingWeigher, setSavingWeigher] = useState(false);
@@ -271,14 +271,14 @@ export function SettingsPage() {
       </div>
 
       <div style={s.grid}>
-        {/* Card A: بيانات الوزّان (خاتمة الفاتورة) */}
+        {/* Card A: بيانات الوزّان (تذييل كل صفحة) */}
         <div style={s.card}>
           <div style={s.iconWrap("#FFF7ED")}>
             <Store size={26} color="#EA580C" />
           </div>
-          <div style={s.cardTitle}>بيانات الوزّان (تظهر في آخر الفاتورة)</div>
+          <div style={s.cardTitle}>بيانات الوزّان (تظهر في أسفل كل صفحة من الفاتورة)</div>
           <div style={s.cardDesc}>
-            تُطبَع في آخر كل فاتورة بالصيغة «ميزان (الاسم)» ثم «للاتصال (الهاتف)». كل الحقول اختيارية؛ الحقل الفارغ لا يُطبَع ولا يترك فراغاً.
+            تُطبَع في وسط أسفل كل صفحة من الفاتورة بالصيغة «ميزان (الاسم)» ثم «للاتصال (الهاتف)». كل الحقول اختيارية؛ الحقل الفارغ لا يُطبَع ولا يترك فراغاً.
           </div>
 
           <div style={s.fieldGroup}>

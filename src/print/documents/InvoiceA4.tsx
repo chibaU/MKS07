@@ -19,9 +19,10 @@
 //        يسار: رقم الفاتورة، تاريخ الفاتورة
 //      ← خط رفيع
 //   3) جدول البنود ← الإجماليات (عرضها = عرض آخر ثلاثة أعمدة في الجدول) ← (ملخّص اختياري).
-//   4) في آخر الفاتورة، في المنتصف بخط صغير: «ميزان (اسم الوزّان)» ثم «للاتصال (الهاتف / الهاتف)»؛
-//      يُحذف سطر الهاتف إن لم يوجد، ولا يُرسَم شيء إن لم يوجد اسم ولا هاتف. لا بيانات وزّان
-//      في أعلى الفاتورة، ولا عنوان للوزّان (عنوانه هو اسم السوق).
+//   4) تذييل كل صفحة بخط صغير في ثلاثة أماكن: يمين = رقم الفاتورة، وسط = «ميزان (اسم الوزّان)» ثم
+//      «للاتصال (الهاتف / الهاتف)» (يُحذف سطر الهاتف إن لم يوجد، ولا يُرسَم شيء إن لم يوجد اسم ولا
+//      هاتف)، يسار = «صفحة x من y». لا بيانات وزّان في أعلى الفاتورة، ولا عنوان للوزّان (عنوانه
+//      هو اسم السوق).
 //
 // البيانات جاهزة التنسيق (مخرجات buildPayload في services/print.ts + بيانات الوزّان):
 // لا يُعاد هنا حساب أي مجموع ولا تنسيق أي مبلغ، ولا يُعدَّل أي نص أدخله المستخدم (أسماء
@@ -29,19 +30,17 @@
 // YYYY-MM-DD إلى DD/MM/YYYY، وطباعة «/» مكان أي حقل تاجر/تاريخ غير مُدرَج (انظر MISSING).
 // لا شيء يُفشل الطباعة.
 //
-// الصفحات: الترويسة في الصفحة الأولى فقط، و<thead> الجدول يتكرر في كل صفحة، والصفوف لا
-// تنقسم. الإجماليات صف أخير في <tbody> نفسه (break-before: avoid) وآخر بند
-// (break-after: avoid) فلا تنفرد الإجماليات بصفحة بل يُسحَب معها آخر بند. رقم الفاتورة
-// يظهر أعلى كل صفحة تتمّة (@page :first يُخفيه في الأولى).
-//
-// الهوامش: الجانبان padding داخل المستند (pageStyle) ليعملا في كل المحركات؛ الأعلى والأسفل
-// عبر @page في printCss.ts، ومع محرّك يتجاهل @page (WebKit) يُضاف هامش الأعلى padding في
-// الصفحة الأولى فقط. ترقيم الصفحات في printCss.ts أيضاً.
+// الصفحات: لا نترك كسر الصفحات للمتصفح — تُقاس ارتفاعات الكتل في DOM مخفيّ ثم تُوزَّع بدالة
+// بحتة (paginate.ts) على صفحات صناديق بارتفاع ثابت. كل صفحة تحمل في أسفلها «رقم الفاتورة»
+// وبيانات الوزّان و«صفحة x من y» كنص عادي، فتظهر في كل المحركات (WebKitGTK لا يدعم
+// صناديق هوامش @page). رأس الجدول يتكرر في كل صفحة، والإجماليات تلازم آخر
+// بند فلا تنفرد بصفحة. الهوامش كلها داخل صندوق الصفحة (و@page بلا هوامش، انظر printCss.ts).
 // ============================================================================
 
-import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal, flushSync } from "react-dom";
 import type { WeigherInfo } from "../weigher.ts";
-import { PAGE_MARGIN_MM } from "../printCss.ts";
+import { PAGE_MM, pageProfile, planPages, type PagePlan, type PageProfile, type PaginateInput } from "../paginate.ts";
 
 export interface InvoiceA4Item {
   product: string;
@@ -83,13 +82,18 @@ const FILL = "#E9E9E9";
 const THIN = `1px solid ${INK}`; // ≈ 0.75pt
 const HEAVY = `2px solid ${INK}`; // ≈ 1.5pt
 
-const AVOID_BREAK: CSSProperties = { breakInside: "avoid", pageBreakInside: "avoid" };
+/** غلاف يمنع انهيار الهوامش فيدخل هامش الابن في ارتفاع الغلاف المقيس. */
+const FLOW_ROOT: CSSProperties = { display: "flow-root" };
+
+/** الفراغ بين جدول البنود وصندوق الإجماليات. */
+const TOTALS_GAP = "3.5mm";
 
 // السطر الأول من الفاتورة: اسم السوق (ثابت). غيّره هنا إن لزم.
 const MARKET_TITLE = "سوق الجملة للخضر والفواكه ببلدية الغروس";
-// اسم السوق: 26pt هو الأكبر الذي يتّسع فيه الاسم الحالي في سطر واحد (قِيس 179.7mm من
-// 186mm؛ عند 27pt ينزل «الغروس» لسطر ثانٍ) — فإن طال الاسم فصغّر هذه القيمة.
-const MARKET_TITLE_PT = 26;
+// اسم السوق: عند 26pt يبلغ الاسم 179.7mm، ويتّسع في Chromium (186mm) لكنه التفّ في WebKitGTK
+// (عرض المحتوى فيه 173.3mm، انظر paginate.ts) فنزل «الغروس» لسطر ثانٍ. عند 24pt يبلغ 165.9mm
+// فيتّسع في المحرّكين؛ فإن طال الاسم فصغّر هذه القيمة.
+const MARKET_TITLE_PT = 24;
 // خلفية الصف الثاني والرابع… في جدول البنود (الأول أبيض): أخفّ من FILL ليبقى رأس الجدول
 // الأغمق مميَّزاً. على طابعة أحادية اللون تُطبع منقَّطة بخفّة؛ ارفعها أو اجعلها "#fff" حسب الطابعة.
 const ZEBRA = "#F2F2F2";
@@ -142,6 +146,8 @@ const s = {
     lineHeight: 1.25,
     paddingTop: "0.5mm",
     overflowWrap: "anywhere",
+    // احتياط: لو التفّ الاسم لسبب ما تتوازن السطور بدل أن ينفرد «الغروس» بسطر.
+    textWrap: "balance",
   },
   // خط مزدوج مرسوم بخطّين صريحين: border-style: double يُرسَم خطاً سميكاً واحداً في WebKit.
   doubleRule: {
@@ -161,7 +167,6 @@ const s = {
     paddingBottom: "3.5mm",
     borderBottom: THIN,
     marginBottom: "4.5mm",
-    ...AVOID_BREAK,
   },
   partyBlock: {
     display: "grid",
@@ -187,7 +192,6 @@ const s = {
   },
   // — الإجماليات —
   totalsWrap: {
-    ...AVOID_BREAK,
     boxSizing: "border-box",
     // حدود الجدول مدموجة (collapse) فتتمركز على حواف الأعمدة بينما حد الصندوق داخل
     // إطاره؛ فرق ~0.3mm قِيس في Chromium. نوسّع الصندوق 0.4mm ونُزيحه 0.25mm نحو الحافة
@@ -220,21 +224,45 @@ const s = {
   },
   grandLabel: { fontSize: "12pt", fontWeight: 800 },
   grandValue: { fontSize: "15pt", fontWeight: 800 },
-  // — خاتمة الفاتورة: ميزان (الاسم) / للاتصال (الهاتف) — صغيرة ومتوسطة الوزن كي لا تزعج —
+  // — بيانات الوزّان في التذييل: ميزان (الاسم) / للاتصال (الهاتف) — صغيرة ومتوسطة الوزن كي لا تزعج —
   weigherFooter: {
-    ...AVOID_BREAK,
-    marginTop: "9mm",
     textAlign: "center",
     fontSize: "9pt",
     fontWeight: 600,
-    lineHeight: 1.6,
+    lineHeight: 1.5,
   },
   summaryTitle: {
     fontSize: "11.5pt",
     fontWeight: 800,
     marginTop: "6mm",
     marginBottom: "2mm",
-    breakAfter: "avoid",
+  },
+  // — الصفحات: صندوق بارتفاع ثابت (ملف المحرّك في paginate.ts) والتذييل مثبَّت في أسفله —
+  // يُفصَل بين الصفحات بكسر صريح؛ الأخيرة بلا كسر فلا تُطبع صفحة فارغة بعدها.
+  pageBreak: { breakAfter: "page", pageBreakAfter: "always" },
+  // التذييل ثلاثة أعمدة: رقم الفاتورة (يمين) | الوزّان (وسط) | رقم الصفحة (يسار). الوسط ضعف
+  // الجانبين فيبقى مركز الصفحة مركزَه ويلتفّ اسم طويل داخله بدل أن يزاحم الجانبين.
+  pageLine: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)",
+    columnGap: "4mm",
+    alignItems: "center",
+    fontSize: "8.5pt",
+    fontWeight: 600,
+    lineHeight: 1.5,
+  },
+  pageLineStart: { textAlign: "start" },
+  pageLineEnd: { textAlign: "end" },
+  // بيانات الوزّان في الوضع الاحتياطي (تدفّق بلا صفحات): بعد آخر المحتوى.
+  weigherInFlow: { marginTop: "9mm" },
+  // نسخة مخفية خارج الشاشة بعرض محتوى الصفحة نفسه تُقاس منها ارتفاعات الكتل (لا تُطبع أبداً:
+  // مخفية على الشاشة، ويُخفي printCss.ts كل ما هو خارج #root وقت الطباعة).
+  measureHost: {
+    position: "fixed",
+    top: 0,
+    left: "-10000px",
+    visibility: "hidden",
+    pointerEvents: "none",
   },
 } satisfies Record<string, CSSProperties>;
 
@@ -360,7 +388,7 @@ function InvoiceMetaParty({ data }: { data: InvoiceA4Data }) {
 
 /**
  * الترويسة (الصفحة الأولى فقط): اسم السوق ← خط مزدوج ← التاجر (يمين) | رقم الفاتورة وتاريخها
- * (يسار) بخط واحد ← خط رفيع. لا بيانات وزّان هنا: مكانها خاتمة الفاتورة (WeigherFooter).
+ * (يسار) بخط واحد ← خط رفيع. لا بيانات وزّان هنا: مكانها تذييل كل صفحة (PageFooter).
  */
 function Header({ data }: { data: InvoiceA4Data }) {
   return (
@@ -378,21 +406,19 @@ function Header({ data }: { data: InvoiceA4Data }) {
 }
 
 /**
- * خاتمة الفاتورة (مرة واحدة في آخرها، في المنتصف بخط صغير):
+ * خاتمة الوزّان (مرة واحدة، في المنتصف بخط صغير):
  *   ميزان (اسم الوزّان)
  *   للاتصال (هاتف) / (هاتف)
- * سطر الهاتف يُحذف إن لم يوجد هاتف، ولا يُرسَم شيء إن لم يوجد اسم ولا هاتف. هي في تدفّق
- * المستند لا في صندوق هامش @page عمداً: صناديق الهوامش تُتجاهَل في WebView2 الأقدم من 131
- * وفي WebKit، فتضيع بيانات الوزّان من الفاتورة كلياً بعد إزالتها من أعلاها.
- * تُوضَع داخل آخر كتلة غير قابلة للانقسام (صف الإجماليات، أو قسم الملخّص إن وُجد) لا بعدها:
- * ككتلة مستقلة بـbreak-before: avoid كانت تنفرد بصفحة وحدها حين تمتلئ الصفحة قبلها (قِيس).
+ * سطر الهاتف يُحذف إن لم يوجد هاتف، ولا يُرسَم شيء إن لم يوجد اسم ولا هاتف. تُرسَم في وسط تذييل
+ * كل صفحة (خارج تدفّق المحتوى) فلا تنفرد بصفحة ولا تُلصَق بكتلة تُحدث فراغاً — وهي نص عادي لا
+ * صندوق هامش @page، فتظهر في كل المحركات.
  */
-function WeigherFooter({ weigher }: { weigher: WeigherInfo }) {
+function WeigherFooter({ weigher, style }: { weigher: WeigherInfo; style?: CSSProperties }) {
   const phones = [weigher.phone1, weigher.phone2].filter((p) => !isBlank(p));
   const hasName = !isBlank(weigher.name);
   if (!hasName && phones.length === 0) return null;
   return (
-    <footer style={s.weigherFooter}>
+    <footer style={{ ...s.weigherFooter, ...style }}>
       {hasName && (
         <div>
           ميزان <bdi>{weigher.name}</bdi>
@@ -415,18 +441,19 @@ function WeigherFooter({ weigher }: { weigher: WeigherInfo }) {
 
 // ─── جدول البنود ────────────────────────────────────────────────────────────
 /**
- * الإجماليات صف أخير في <tbody> نفسه (لا <tfoot>: يتكرر في كل صفحة) مع
- * break-before: avoid على صفها وbreak-after: avoid على آخر بند — فلا تبقى
- * الإجماليات وحدها في صفحة، بل يُسحَب معها آخر بند.
+ * جدول البنود (أو جزء منه في صفحة): `start` ترتيب أول بند في `items` ضمن الفاتورة كلها، فيبقى
+ * الترقيم (#) والتظليل متصلَين عبر الصفحات. `marker` يضع وسماً يقرؤه القياس.
  */
 function ItemsTable({
   items,
+  start,
   hasBoxes,
-  footer,
+  marker,
 }: {
   items: InvoiceA4Item[];
+  start: number;
   hasBoxes: boolean;
-  footer: ReactNode;
+  marker?: string;
 }) {
   const heads = [
     { label: "#", width: "9mm" },
@@ -439,13 +466,13 @@ function ItemsTable({
   const count = heads.length;
 
   return (
-    <table style={s.table}>
+    <table style={s.table} data-m={marker}>
       <colgroup>
         {heads.map((h, i) => (
           <col key={i} style={h.width ? { width: h.width } : undefined} />
         ))}
       </colgroup>
-      <thead style={s.thead}>
+      <thead>
         <tr>
           {heads.map((h, i) => (
             <th key={i} style={{ ...headCell, ...frame(i, count) }}>
@@ -455,19 +482,15 @@ function ItemsTable({
         </tr>
       </thead>
       <tbody>
-        {items.map((item, i) => {
-          const isLast = i === items.length - 1;
-          const rowStyle: CSSProperties = {
-            ...AVOID_BREAK,
-            ...(isLast ? { breakAfter: "avoid" } : null),
-          };
+        {items.map((item, k) => {
+          const n = start + k;
           // الصف الأول أبيض (فوقه رأس الجدول الرمادي) والثاني رمادي فاتح جداً وهكذا.
-          const rowCell: CSSProperties = i % 2 === 1 ? { backgroundColor: ZEBRA } : {};
+          const rowCell: CSSProperties = n % 2 === 1 ? { backgroundColor: ZEBRA } : {};
           let c = 0;
           return (
-            <tr key={i} style={rowStyle}>
+            <tr key={n}>
               <td style={{ ...cell, ...rowCell, ...frame(c++, count), textAlign: "center", fontWeight: 600 }}>
-                <Num>{i + 1}</Num>
+                <Num>{n + 1}</Num>
               </td>
               <td style={{ ...cell, ...rowCell, ...frame(c++, count), fontWeight: 700, fontSize: "10.5pt" }}>
                 {item.product}
@@ -491,11 +514,6 @@ function ItemsTable({
             </tr>
           );
         })}
-        <tr style={{ ...AVOID_BREAK, breakBefore: "avoid" }}>
-          <td colSpan={count} style={{ padding: 0, border: "none" }}>
-            <div style={{ paddingTop: "3.5mm" }}>{footer}</div>
-          </td>
-        </tr>
       </tbody>
     </table>
   );
@@ -528,135 +546,312 @@ function Totals({ data, hasBoxes }: { data: InvoiceA4Data; hasBoxes: boolean }) 
   );
 }
 
-// ─── الملخّص الاختياري ──────────────────────────────────────────────────────
-function RepeatedSummary({ rows, footer }: { rows: InvoiceA4Summary[]; footer?: ReactNode }) {
-  const heads = ["المنتج", "الوزن الكلي (كغ)", "سعر التعادل (دج/كغ)", "المبلغ الكلي (دج)"];
+/** الإجماليات مع الفراغ الذي فوقها (يُقاس معها كقطعة واحدة). */
+function TotalsBlock({ data, hasBoxes, marker }: { data: InvoiceA4Data; hasBoxes: boolean; marker?: string }) {
   return (
-    // جدول صغير عادةً: يبقى مع عنوانه في صفحة واحدة بدل أن يُشطر صفّه الأخير إلى صفحة تالية.
-    <section style={AVOID_BREAK}>
-      <div style={s.summaryTitle}>ملخّص المنتجات المتكررة</div>
-      <table style={s.table}>
-        <colgroup>
-          <col />
-          <col style={{ width: "32mm" }} />
-          <col style={{ width: "38mm" }} />
-          <col style={{ width: "36mm" }} />
-        </colgroup>
-        <thead style={s.thead}>
-          <tr>
-            {heads.map((h, i) => (
-              <th key={i} style={{ ...headCell, ...frame(i, heads.length) }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => {
-            return (
-              <tr key={i} style={AVOID_BREAK}>
-                <td style={{ ...cell, ...frame(0, 4), fontWeight: 700, fontSize: "10.5pt" }}>
-                  {row.product}
-                </td>
-                <td style={{ ...cell, ...frame(1, 4), textAlign: "right" }}>
-                  <Num>{row.totalWeight}</Num>
-                </td>
-                <td style={{ ...cell, ...frame(2, 4), textAlign: "right" }}>
-                  <Num>{row.breakEvenPrice}</Num>
-                </td>
-                <td style={{ ...cell, ...frame(3, 4), textAlign: "right", fontWeight: 800 }}>
-                  <Num>{row.totalAmount}</Num>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {footer}
-    </section>
+    <div style={{ ...FLOW_ROOT, paddingTop: TOTALS_GAP }} data-m={marker}>
+      <Totals data={data} hasBoxes={hasBoxes} />
+    </div>
   );
 }
 
-// ─── رقم الفاتورة في صفحات التتمّة ──────────────────────────────────────────
-/**
- * تهريب نص ليوضع داخل "..." في CSS دون حذف أي محرف منه: \ و " والسطر الجديد، و< و>
- * (كي لا يُغلق </style> العنصر المحيط). الرقم يظهر كما أُدخل.
- */
-function cssString(value: string): string {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\r?\n/g, "\\A ")
-    .replace(/</g, "\\3C ")
-    .replace(/>/g, "\\3E ");
+// ─── الملخّص الاختياري ──────────────────────────────────────────────────────
+function SummaryTitle({ marker }: { marker?: string }) {
+  return (
+    <div style={FLOW_ROOT} data-m={marker}>
+      <div style={s.summaryTitle}>ملخّص المنتجات المتكررة</div>
+    </div>
+  );
 }
 
-/**
- * يُكتب في صندوق هامش @page (لا يستهلك مساحة من المحتوى) ويُخفى في الصفحة الأولى لأن
- * ترويستها تحمل الرقم. يُتجاهَل بصمت إن لم يدعم المحرّك صناديق الهوامش (الشرط نفسه
- * لترقيم الصفحات في printCss.ts).
- */
-function ContinuationHeader({ number }: { number: string }) {
-  if (isBlank(number)) return null;
-  const css =
-    `@page { @top-center { content: "فاتورة رقم ${cssString(number)} — تتمّة"; ` +
-    `font-family: 'Cairo', sans-serif; font-size: 9pt; font-weight: 700; color: #000; ` +
-    `direction: rtl; vertical-align: middle; } } ` +
-    `@page :first { @top-center { content: none; } }`;
-  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+function SummaryTable({ rows, marker }: { rows: InvoiceA4Summary[]; marker?: string }) {
+  const heads = ["المنتج", "الوزن الكلي (كغ)", "سعر التعادل (دج/كغ)", "المبلغ الكلي (دج)"];
+  return (
+    <table style={s.table} data-m={marker}>
+      <colgroup>
+        <col />
+        <col style={{ width: "32mm" }} />
+        <col style={{ width: "38mm" }} />
+        <col style={{ width: "36mm" }} />
+      </colgroup>
+      <thead>
+        <tr>
+          {heads.map((h, i) => (
+            <th key={i} style={{ ...headCell, ...frame(i, heads.length) }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i}>
+            <td style={{ ...cell, ...frame(0, 4), fontWeight: 700, fontSize: "10.5pt" }}>{row.product}</td>
+            <td style={{ ...cell, ...frame(1, 4), textAlign: "right" }}>
+              <Num>{row.totalWeight}</Num>
+            </td>
+            <td style={{ ...cell, ...frame(2, 4), textAlign: "right" }}>
+              <Num>{row.breakEvenPrice}</Num>
+            </td>
+            <td style={{ ...cell, ...frame(3, 4), textAlign: "right", fontWeight: 800 }}>
+              <Num>{row.totalAmount}</Num>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
-// ─── الهوامش ────────────────────────────────────────────────────────────────
+// ─── تذييل الصفحة ───────────────────────────────────────────────────────────
 /**
- * هل يطبّق المحرّك هوامش @page؟ Chromium (WebView2 على ويندوز) نعم؛ WebKit (WebKitGTK
- * على لينكس، WKWebView على ماك) يتجاهلها فتخرج الفاتورة ملاصقة لحافة الورقة، وهذا ما
- * ظهر في PDF طُبع على لينكس. يُقرأ وقت العرض داخل نافذة التطبيق نفسها.
+ * أسفل كل صفحة بخط صغير: رقم الفاتورة (يمين) | ميزان واسمه وهاتفه (وسط) | «صفحة x من y» (يسار)،
+ * كي لا تختلط أوراق فاتورتين ويُعرَف الوزّان من أي ورقة. الفارغ لا يُرسَم (رقم فاتورة فارغ أو
+ * وزّان بلا اسم ولا هاتف) ويبقى مكانه محفوظاً فلا تتحرك بقية الخانات.
  */
-function engineHonorsPageMargins(): boolean {
-  if (typeof navigator === "undefined") return true;
-  return /\b(?:Chrome|Chromium|Edg)\//.test(navigator.userAgent);
+function PageFooter({
+  data,
+  page,
+  total,
+  marker,
+}: {
+  data: InvoiceA4Data;
+  page: number;
+  total: number;
+  marker?: string;
+}) {
+  return (
+    <div style={{ ...FLOW_ROOT, ...s.pageLine }} data-m={marker}>
+      <span style={s.pageLineStart}>
+        {!isBlank(data.invoiceNumber) && (
+          <>
+            رقم الفاتورة: <span style={s.numWrap}>{data.invoiceNumber}</span>
+          </>
+        )}
+      </span>
+      <div>
+        <WeigherFooter weigher={data.weigher} />
+      </div>
+      <span style={s.pageLineEnd}>
+        صفحة <Num>{page}</Num> من <Num>{total}</Num>
+      </span>
+    </div>
+  );
 }
 
-/**
- * الجانبان داخل المستند دائماً (يعمل في كل المحركات). أما الأعلى والأسفل فتتكفّل بهما
- * @page (printCss.ts) في Chromium — وهي وحدها التي تتكرر على كل صفحة. حيث تُتجاهَل
- * نضيف هامش الأعلى padding في الصفحة الأولى فقط. الهامش السفلي لا يُضاف: padding في آخر
- * المستند يُنتج صفحة فارغة حين ينتهي المحتوى قرب أسفل الصفحة (جُرِّب)، ولا طريقة موثوقة
- * لحجز مساحة أسفل كل صفحة بلا @page.
- */
-function pageStyle(): CSSProperties {
-  const m = PAGE_MARGIN_MM;
+/** صندوق الصفحة وتذييلها حسب ملف المحرّك (انظر pageProfile في paginate.ts). */
+function pageBoxStyle(profile: PageProfile): CSSProperties {
   return {
-    ...s.page,
-    paddingLeft: `${m.left}mm`,
-    paddingRight: `${m.right}mm`,
-    ...(engineHonorsPageMargins() ? null : { paddingTop: `${m.top}mm` }),
+    position: "relative",
+    boxSizing: "border-box",
+    height: `${profile.height}mm`,
+    padding: `${PAGE_MM.top}mm ${PAGE_MM.side}mm 0`,
   };
+}
+
+function footerZoneStyle(profile: PageProfile): CSSProperties {
+  return {
+    position: "absolute",
+    left: `${PAGE_MM.side}mm`,
+    right: `${PAGE_MM.side}mm`,
+    bottom: `${profile.footerBottom}mm`,
+  };
+}
+
+// ─── القياس والتقسيم ────────────────────────────────────────────────────────
+const MM_PER_PX = 25.4 / 96;
+
+/** ارتفاعات رأس جدول وصفوفه (mm) من مواضع الصفوف: مجموعها يساوي ارتفاع الجدول تماماً. */
+function measureTable(table: Element | null): { headH: number; rowsH: number[] } | null {
+  const head = table?.querySelector("thead tr");
+  if (!table || !head) return null;
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  const tableRect = table.getBoundingClientRect();
+  const headRect = head.getBoundingClientRect();
+  const tops = rows.map((row) => row.getBoundingClientRect().top);
+  const headPx = tops.length > 0 ? tops[0] - headRect.top : headRect.height;
+  const rowsPx = tops.map((top, i) => (i + 1 < tops.length ? tops[i + 1] : tableRect.bottom) - top);
+  return { headH: headPx * MM_PER_PX, rowsH: rowsPx.map((px) => px * MM_PER_PX) };
+}
+
+/**
+ * يقيس الكتل في النسخة المخفية. null إن لم يكن التخطيط محسوباً (عنصر مخفي بـdisplay:none، أو
+ * قيم صفرية) — عندئذ تُعرَض الفاتورة في الوضع الاحتياطي بلا ترقيم بدل أن تُقسَّم على أرقام خاطئة.
+ */
+function measureLayout(root: HTMLElement, hasSummary: boolean, profile: PageProfile): PaginateInput | null {
+  if (root.getBoundingClientRect().width <= 0) return null;
+  const height = (marker: string): number => {
+    const el = root.querySelector(`[data-m="${marker}"]`);
+    return el ? el.getBoundingClientRect().height * MM_PER_PX : 0;
+  };
+  const items = measureTable(root.querySelector('[data-m="items"]'));
+  const summary = hasSummary ? measureTable(root.querySelector('[data-m="summary"]')) : null;
+  const headerH = height("header");
+  const totalsH = height("totals");
+  const footerH = height("footer");
+  const titleH = height("summary-title");
+
+  if (!items || items.headH <= 0 || items.rowsH.some((h) => !(h > 0))) return null;
+  if (hasSummary && (!summary || summary.headH <= 0 || summary.rowsH.some((h) => !(h > 0)) || titleH <= 0)) {
+    return null;
+  }
+  if (!(headerH > 0) || !(totalsH > 0) || !(footerH > 0)) return null;
+
+  return {
+    profile,
+    headerH,
+    items,
+    totalsH,
+    summary: summary ? { titleH, headH: summary.headH, rowsH: summary.rowsH } : null,
+    footerH,
+  };
+}
+
+// ─── المستند ────────────────────────────────────────────────────────────────
+function Pages({
+  data,
+  items,
+  summary,
+  hasBoxes,
+  plan,
+  profile,
+}: {
+  data: InvoiceA4Data;
+  items: InvoiceA4Item[];
+  summary: InvoiceA4Summary[];
+  hasBoxes: boolean;
+  plan: PagePlan[];
+  profile: PageProfile;
+}) {
+  return (
+    <div style={s.page} lang="ar" dir="rtl">
+      {plan.map((p, i) => {
+        const last = i === plan.length - 1;
+        return (
+          <section key={i} data-page={i + 1} style={{ ...pageBoxStyle(profile), ...(last ? null : s.pageBreak) }}>
+            {i === 0 && (
+              <div style={FLOW_ROOT}>
+                <Header data={data} />
+              </div>
+            )}
+            {p.rows && (
+              <ItemsTable items={items.slice(p.rows[0], p.rows[1])} start={p.rows[0]} hasBoxes={hasBoxes} />
+            )}
+            {p.totals && <TotalsBlock data={data} hasBoxes={hasBoxes} />}
+            {p.summaryTitle && <SummaryTitle />}
+            {p.summaryRows && <SummaryTable rows={summary.slice(p.summaryRows[0], p.summaryRows[1])} />}
+            <div style={footerZoneStyle(profile)}>
+              <PageFooter data={data} page={i + 1} total={plan.length} />
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * الوضع الاحتياطي (لا قياس: خادم/اختبار، أو تعذّر القياس): كل المحتوى في تدفّق واحد وكسر
+ * الصفحات للمتصفح. بلا ترقيم ولا تذييل، لكن لا يضيع شيء من الفاتورة.
+ */
+function FlowSheet({
+  data,
+  items,
+  summary,
+  hasBoxes,
+}: {
+  data: InvoiceA4Data;
+  items: InvoiceA4Item[];
+  summary: InvoiceA4Summary[];
+  hasBoxes: boolean;
+}) {
+  return (
+    <div style={{ ...s.page, padding: `${PAGE_MM.top}mm ${PAGE_MM.side}mm 0` }} lang="ar" dir="rtl">
+      <Header data={data} />
+      <ItemsTable items={items} start={0} hasBoxes={hasBoxes} />
+      <TotalsBlock data={data} hasBoxes={hasBoxes} />
+      {summary.length > 0 && (
+        <>
+          <SummaryTitle />
+          <SummaryTable rows={summary} />
+        </>
+      )}
+      <WeigherFooter weigher={data.weigher} style={s.weigherInFlow} />
+    </div>
+  );
 }
 
 export function InvoiceA4({ data }: { data: InvoiceA4Data }) {
   const items = data.items ?? [];
-  const hasBoxes = items.some((item) => !isBlank(item.boxes));
   const summary = data.repeatedProductSummary ?? [];
+  const hasBoxes = items.some((item) => !isBlank(item.boxes));
+  const hasSummary = summary.length > 0;
+  const profile = pageProfile(typeof navigator === "undefined" ? "" : navigator.userAgent);
 
-  // الخاتمة آخر شيء في الفاتورة: بعد الإجماليات إن لم يوجد ملخّص، وإلا بعد الملخّص.
-  const weigherFooter = <WeigherFooter weigher={data.weigher} />;
+  // الخطة تُحفَظ مع البيانات التي حُسبت لها: تغيّرت البيانات ولم تُحسَب الجديدة بعد ← الوضع الاحتياطي.
+  const [state, setState] = useState<{ data: InvoiceA4Data; plan: PagePlan[] } | null>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const canMeasure = typeof document !== "undefined";
+
+  // يقيس قبل الرسم الأول (فلا تظهر صفحة غير مقسَّمة)؛ ثم يعيد القياس إن كانت الخطوط ما زالت
+  // تُحمَّل وقت القياس الأول (ارتفاعات خط بديل خاطئة). flushSync كي يكتمل الرسم قبل الطباعة.
+  useLayoutEffect(() => {
+    let alive = true;
+    const run = () => {
+      const root = measureRef.current;
+      const input = root ? measureLayout(root, hasSummary, profile) : null;
+      const plan = input ? planPages(input) : null;
+      setState((prev) => {
+        if (!plan) return null;
+        if (prev && prev.data === data && JSON.stringify(prev.plan) === JSON.stringify(plan)) return prev;
+        return { data, plan };
+      });
+    };
+    run();
+    if (document.fonts && document.fonts.status !== "loaded") {
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2500));
+      void Promise.race([document.fonts.ready, timeout]).then(() => {
+        if (alive) flushSync(run);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [data, hasSummary, profile]);
+
+  const plan = state && state.data === data ? state.plan : null;
 
   return (
-    <div style={pageStyle()} lang="ar" dir="rtl">
-      <ContinuationHeader number={data.invoiceNumber} />
-      <Header data={data} />
-      <ItemsTable
-        items={items}
-        hasBoxes={hasBoxes}
-        footer={
-          <>
-            <Totals data={data} hasBoxes={hasBoxes} />
-            {summary.length === 0 && weigherFooter}
-          </>
-        }
-      />
-      {summary.length > 0 && <RepeatedSummary rows={summary} footer={weigherFooter} />}
-    </div>
+    <>
+      {plan ? (
+        <Pages data={data} items={items} summary={summary} hasBoxes={hasBoxes} plan={plan} profile={profile} />
+      ) : (
+        <FlowSheet data={data} items={items} summary={summary} hasBoxes={hasBoxes} />
+      )}
+      {canMeasure &&
+        createPortal(
+          <div
+            ref={measureRef}
+            style={{ ...s.page, ...s.measureHost, width: `${profile.contentWidth}mm` }}
+            aria-hidden="true"
+            lang="ar"
+            dir="rtl"
+          >
+            <div style={FLOW_ROOT} data-m="header">
+              <Header data={data} />
+            </div>
+            <ItemsTable items={items} start={0} hasBoxes={hasBoxes} marker="items" />
+            <TotalsBlock data={data} hasBoxes={hasBoxes} marker="totals" />
+            {hasSummary && (
+              <>
+                <SummaryTitle marker="summary-title" />
+                <SummaryTable rows={summary} marker="summary" />
+              </>
+            )}
+            <PageFooter data={data} page={1} total={1} marker="footer" />
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
